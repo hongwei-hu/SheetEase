@@ -137,7 +137,7 @@ def _convert_primitive(type_str: str, value: Any, field: str = None, sheet: str 
 
 
 def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field: str = None, sheet: str = None, row: int = None, col: int = None):
-    """对C#基础类型做范围/合法性检查，超出范围时log_warn，支持表名/行/列定位"""
+    """对C#基础类型做范围/合法性检查，超出范围时抛出异常，支持表名/行/列定位"""
     prefix = f"[{sheet}] " if sheet else ""
     if row is not None:
         prefix += f"行{row} "
@@ -150,28 +150,28 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
         try:
             ival = int(v)
             if ival < -2147483648 or ival > 2147483647:
-                log_warn(f"{prefix}值{raw!r}超出C# int范围[-2147483648,2147483647]，实际为{ival}")
+                raise ValueError(f"{prefix}值{raw!r}超出C# int范围[-2147483648,2147483647]，实际为{ival}")
         except Exception:
-            log_warn(f"{prefix}值{raw!r}无法转换为C# int")
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# int")
     # float: [-3.4028235e38, 3.4028235e38]
     elif type_str == "float":
         try:
             fval = float(v)
             if abs(fval) > 3.4028235e38:
-                log_warn(f"{prefix}值{raw!r}超出C# float范围[-3.4028235e38,3.4028235e38]，实际为{fval}")
+                raise ValueError(f"{prefix}值{raw!r}超出C# float范围[-3.4028235e38,3.4028235e38]，实际为{fval}")
         except Exception:
-            log_warn(f"{prefix}值{raw!r}无法转换为C# float")
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# float")
     # bool: 仅允许true/false/1/0，空值(None/"")视为False且不警告
     elif type_str == "bool":
         if raw is None or (isinstance(raw, str) and raw.strip() == ""):
             return  # 空值不警告
         sval = str(raw).strip().lower()
         if sval not in ("1", "0", "true", "false"):
-            log_warn(f"{prefix}值{raw!r}不是C# bool允许的取值(true/false/1/0)")
+            raise ValueError(f"{prefix}值{raw!r}不是C# bool允许的取值(true/false/1/0)")
     # string: 警告超长
     elif type_str in ("str", "string"):
         if isinstance(v, str) and len(v) > 65535:
-            log_warn(f"{prefix}字符串长度{len(v)}超出C# string推荐上限65535，可能导致序列化或存储异常")
+            raise ValueError(f"{prefix}字符串长度{len(v)}超出C# string推荐上限65535，可能导致序列化或存储异常")
 
 
 def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> Dict[Any, Any]:

@@ -817,17 +817,9 @@ class WorksheetData:
                     if default_value is None and self.data_labels[col_index] == "required":
                         required_missing_count += 1
                         raise RuntimeError(f"{data_name} required 但值为空且无默认值 (行{excel_row})")
-                    try:
-                        value = convert_to_type(type_str, default_value, data_name, self.name)
-                    except Exception as e:
-                        log_error(f"{self.name} 行{excel_row} 字段 {data_name} 默认值转换失败 原值[{_short(default_value)}]: {e}")
-                        value = None
+                    value = convert_to_type(type_str, default_value, data_name, self.name)
                 else:
-                    try:
-                        value = convert_to_type(type_str, cell_value, data_name, self.name)
-                    except Exception as e:
-                        log_error(f"{self.name} 行{excel_row} 字段 {data_name} 转换失败 原值[{_short(cell_value)}]: {e}")
-                        value = None
+                    value = convert_to_type(type_str, cell_value, data_name, self.name)
                 row_obj[data_name] = value
 
                 # 资源字段校验：[Asset] 或 [Asset:ext]，值为无扩展名文件名；严格大小写匹配文件名，扩展名忽略大小写
