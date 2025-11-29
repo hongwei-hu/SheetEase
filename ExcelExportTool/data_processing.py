@@ -116,51 +116,98 @@ def convert_to_type(type_str: str, value: Any, field: str | None = None, sheet: 
 
 
 def _convert_primitive(type_str: str, value: Any) -> Any:
-    """转换为基本类型"""
+    """转换为基本类型，并做C#风格范围/合法性检查"""
     converter = PRIMITIVE_TYPE_MAPPING[type_str]
     if value is None:
-        return "" if type_str in ("str", "string") else converter(0)
-    return converter(value)
+        v = "" if type_str in ("str", "string") else converter(0)
+        _check_csharp_primitive_range(type_str, v, raw=value)
+        return v
+    v = converter(value)
+    _check_csharp_primitive_range(type_str, v, raw=value)
+    return v
+
+
+def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field: str = None, sheet: str = None):
+    """对C#基础类型做范围/合法性检查，超出范围时log_warn"""
+    # int: [-2^31, 2^31-1]
+    if type_str == "int":
+        try:
+            ival = int(v)
+            if ival < -2147483648 or ival > 2147483647:
+                log_warn(f"字段{field or ''}值{raw!r}超出C# int范围[-2147483648,2147483647]，实际为{ival}")
+        except Exception:
+            log_warn(f"字段{field or ''}值{raw!r}无法转换为C# int")
+    # float: [-3.4028235e38, 3.4028235e38]
+    elif type_str == "float":
+        try:
+            fval = float(v)
+            if abs(fval) > 3.4028235e38:
+                log_warn(f"字段{field or ''}值{raw!r}超出C# float范围[-3.4028235e38,3.4028235e38]，实际为{fval}")
+        except Exception:
+            log_warn(f"字段{field or ''}值{raw!r}无法转换为C# float")
+    # bool: 仅允许true/false/1/0
+    elif type_str == "bool":
+        sval = str(raw).strip().lower()
+        if sval not in ("1", "0", "true", "false", "yes", "no"):
+            log_warn(f"字段{field or ''}值{raw!r}不是C# bool允许的取值(true/false/1/0/yes/no)")
+    # string: 警告超长
+    elif type_str in ("str", "string"):
+        if isinstance(v, str) and len(v) > 65535:
+            log_warn(f"字段{field or ''}字符串长度{len(v)}超出C# string推荐上限65535，可能导致序列化或存储异常")
 
 
 def _convert_dict(type_str: str, value: Any) -> Dict[Any, Any]:
-    """转换为字典类型，例如 dict(int,string)"""
+    """转换为字典类型，例如 dict(int,string)，并递归做C#范围检查"""
     result: Dict[Any, Any] = {}
     type_match = re.search(r"\((.*)\)", type_str)
-
     if not type_match or value is None:
         return result
-
     key_type_str, value_type_str = map(str.strip, type_match.group(1).split(","))
-    key_type = PRIMITIVE_TYPE_MAPPING.get(key_type_str, str)
-    val_type = PRIMITIVE_TYPE_MAPPING.get(value_type_str, str)
-
+    # 支持嵌套类型
     for line in str(value).splitlines():
         if ":" in line:
             key, val = map(str.strip, line.split(":", 1))
-            try:
-                result[key_type(key)] = val_type(val)
-            except Exception as e:
-                raise ValueError(f"无法将 {line} 转换为 {type_str}: {e}")
-
+            # key 只支持基础类型
+            key_conv = PRIMITIVE_TYPE_MAPPING.get(key_type_str, str)
+            k = key_conv(key)
+            # value 支持递归
+            v = _convert_with_check(value_type_str, val)
+            result[k] = v
     return result
 
 
 def _convert_list(type_str: str, value: Any) -> List[Any]:
-    """转换为列表类型，例如 list(int)"""
+    """转换为列表类型，例如 list(int)，并递归做C#范围检查"""
     result: List[Any] = []
     type_match = re.search(r"\((.*)\)", type_str)
-
     if not type_match or value is None:
         return result
-
     element_type_str = type_match.group(1).strip()
-    elem_type = PRIMITIVE_TYPE_MAPPING.get(element_type_str, str)
-
+    # 支持递归
     if isinstance(value, str):
-        return [elem_type(v.strip()) for v in value.split(",") if v.strip()]
-
+        for v in value.split(","):
+            v = v.strip()
+            if v:
+                result.append(_convert_with_check(element_type_str, v))
+        return result
+    # 单元素
     try:
-        return [elem_type(value)]
+        result.append(_convert_with_check(element_type_str, value))
+        return result
     except Exception as e:
         raise ValueError(f"无法将 {value} 转换为 {type_str}: {e}")
+
+
+def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str = None):
+    """递归类型转换+范围检查。支持基础、list、dict。"""
+    type_str = type_str.strip()
+    if type_str in PRIMITIVE_TYPE_MAPPING:
+        v = PRIMITIVE_TYPE_MAPPING[type_str](value)
+        _check_csharp_primitive_range(type_str, v, raw=value, field=field, sheet=sheet)
+        return v
+    if type_str.startswith("list"):
+        return _convert_list(type_str, value)
+    if type_str.startswith("dict"):
+        return _convert_dict(type_str, value)
+    # 其它类型暂不递归
+    return value
