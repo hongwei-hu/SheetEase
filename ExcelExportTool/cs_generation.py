@@ -19,11 +19,6 @@ _DRY_RUN = False                      # 试运行不开写
 _created_files: List[str] = []        # 已生成文件记录
 # ========================================================================
 
-# 输出控制
-_DIFF_ONLY = True
-_DRY_RUN = False
-_created_files: List[str] = []
-
 def set_output_options(diff_only: bool = True, dry_run: bool = False) -> None:
     """设置是否仅在内容变化时写入(diff) 与是否试运行(dry-run)"""
     global _DIFF_ONLY, _DRY_RUN

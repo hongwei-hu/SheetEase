@@ -9,12 +9,6 @@ from .exceptions import UnknownCustomTypeError, CustomTypeParseError
 from .log import log_warn
 from .naming_utils import is_valid_csharp_identifier
 from .type_utils import parse_type_annotation
-import re
-
-
-# Compatibility alias
-def available_csharp_enum_name(name: str) -> bool:
-    return is_valid_csharp_identifier(name)
 
 # 基本类型映射
 def _parse_bool(x):
@@ -93,10 +87,10 @@ def _parse_localized_string_ref(raw: Optional[str]):
 custom_type_registry.register("Localization.LocalizedStringRef", _parse_localized_string_ref)
 # =====================================================
 
-
+# Compatibility alias: 使用统一的命名工具
 def available_csharp_enum_name(name: str) -> bool:
-    """检查是否为合法的C#枚举名"""
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(name)))
+    """检查是否为合法的C#枚举名（兼容性别名）"""
+    return is_valid_csharp_identifier(name)
 
 
 def convert_to_type(type_str: str, value: Any, field: str | None = None, sheet: str | None = None, row: int | None = None, col: int | None = None) -> Any:

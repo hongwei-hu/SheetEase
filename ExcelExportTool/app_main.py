@@ -166,7 +166,8 @@ class TextRedirector:
         # marshal to UI thread
         try:
             self.text.after(0, _process)
-        except Exception:
+        except (tk.TclError, RuntimeError):
+            # 窗口已关闭或其他GUI错误，静默处理
             pass
 
     def flush(self):
@@ -195,8 +196,8 @@ class MainWindow:
         master.title('SheetEase - 导表工具')
         master.minsize(820, 520)
 
-        # Config vars
-        self.vars = {
+        # Config vars (支持 StringVar 和 BooleanVar)
+        self.vars: dict[str, tk.Variable] = {
             'excel_root': tk.StringVar(value=(init_cfg or {}).get('excel_root', '')),
             'output_project': tk.StringVar(value=(init_cfg or {}).get('output_project', '')),
             'cs_output': tk.StringVar(value=(init_cfg or {}).get('cs_output', '')),
@@ -531,7 +532,12 @@ class MainWindow:
                     pass
                 bexport = _import_batch_excel_to_json()
                 # Redirect stdout/stderr into GUI log
-                with contextlib.redirect_stdout(self.logger), contextlib.redirect_stderr(self.logger):
+                # 注意：TextRedirector 实现了 write 和 flush 方法，符合 IO 协议
+                import sys
+                old_stdout, old_stderr = sys.stdout, sys.stderr
+                sys.stdout = self.logger  # type: ignore
+                sys.stderr = self.logger  # type: ignore
+                try:
                     bexport(
                         source_folder=cfg['excel_root'],
                         output_client_folder=None,
@@ -543,6 +549,8 @@ class MainWindow:
                         auto_cleanup=True,
                     )
                     code = 0
+                finally:
+                    sys.stdout, sys.stderr = old_stdout, old_stderr
             except SystemExit as se:
                 code = int(getattr(se, 'code', 1) or 0)
             except Exception as e:
