@@ -37,6 +37,13 @@ def test_bool_legal():
     with patch('ExcelExportTool.data_processing.log_warn') as mock_warn:
         data_processing._check_csharp_primitive_range("bool", True, raw="true", field="test", sheet="sheet")
         data_processing._check_csharp_primitive_range("bool", False, raw="0", field="test", sheet="sheet")
+        data_processing._check_csharp_primitive_range("bool", True, raw="1", field="test", sheet="sheet")
+        data_processing._check_csharp_primitive_range("bool", False, raw="false", field="test", sheet="sheet")
+        mock_warn.assert_not_called()
+    # 空值(None/"")不警告，解析为False
+    with patch('ExcelExportTool.data_processing.log_warn') as mock_warn:
+        data_processing._check_csharp_primitive_range("bool", False, raw=None, field="test", sheet="sheet")
+        data_processing._check_csharp_primitive_range("bool", False, raw="", field="test", sheet="sheet")
         mock_warn.assert_not_called()
 
 def test_string_length():
