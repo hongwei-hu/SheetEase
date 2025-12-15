@@ -9,6 +9,7 @@ from .exceptions import UnknownCustomTypeError, CustomTypeParseError
 from .log import log_warn
 from .naming_utils import is_valid_csharp_identifier
 from .type_utils import parse_type_annotation
+from .enum_registry import get_enum_registry
 
 # 基本类型映射
 def _parse_bool(x):
@@ -94,15 +95,38 @@ def available_csharp_enum_name(name: str) -> bool:
 
 
 def convert_to_type(type_str: str, value: Any, field: str | None = None, sheet: str | None = None, row: int | None = None, col: int | None = None) -> Any:
-    """根据类型字符串转换值 (支持基础/list/dict/自定义全限定类型)"""
+    """根据类型字符串转换值 (支持基础/list/dict/枚举/自定义全限定类型)"""
     if not type_str:
         raise ValueError("空类型定义")
     type_str = type_str.strip()
 
-    # 基础
+    # 解析类型注解
+    kind, base_type = parse_type_annotation(type_str)
+    
+    # 枚举类型处理
+    if kind == "enum":
+        return _convert_enum(base_type, value, field, sheet, row, col)
+    elif kind == "list" and base_type and base_type.startswith("enum("):
+        # list(enum(枚举名))
+        enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
+        if enum_match:
+            enum_name = enum_match.group(1).strip()
+            return _convert_list_enum(enum_name, value, field, sheet, row, col)
+        # 普通list
+        return _convert_list(type_str, value, field, sheet, row, col)
+    elif kind == "dict" and base_type and base_type.startswith("enum("):
+        # dict(..., enum(枚举名))
+        enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
+        if enum_match:
+            enum_name = enum_match.group(1).strip()
+            return _convert_dict_enum(type_str, enum_name, value, field, sheet, row, col)
+        # 普通dict
+        return _convert_dict(type_str, value, field, sheet, row, col)
+    
+    # 基础类型
     if type_str in PRIMITIVE_TYPE_MAPPING:
         return _convert_primitive(type_str, value, field, sheet, row, col)
-    # 容器
+    # 容器（普通list/dict）
     if type_str.startswith("dict"):
         return _convert_dict(type_str, value, field, sheet, row, col)
     if type_str.startswith("list"):
@@ -210,8 +234,144 @@ def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = Non
         raise ValueError(f"无法将 {value} 转换为 {type_str}: {e}")
 
 
+def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> int:
+    """
+    转换枚举类型：将枚举项名称转换为枚举值（整数）
+    
+    Args:
+        enum_name: 枚举类型名称
+        value: Excel单元格值（枚举项名称）
+        field: 字段名
+        sheet: 表名
+        row: 行号
+        col: 列号
+    
+    Returns:
+        枚举值（整数）
+    
+    Raises:
+        ExportError: 如果枚举不存在、枚举项不存在或值为空
+    """
+    from .exceptions import ExportError
+    
+    enum_registry = get_enum_registry()
+    
+    # 验证枚举是否存在
+    if not enum_registry.has_enum(enum_name):
+        available_enums = sorted(enum_registry.get_all_enum_names())
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        raise ExportError(
+            f"{prefix}枚举类型 '{enum_name}' 未定义。"
+            f"可用的枚举类型: {available_enums}"
+        )
+    
+    # 非嵌套枚举不允许空值
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        raise ExportError(
+            f"{prefix}枚举字段 '{field}' 不允许为空值（枚举类型: {enum_name}）"
+        )
+    
+    # 获取枚举项名称（区分大小写）
+    item_name = str(value).strip()
+    
+    # 验证枚举项名称格式（大写驼峰式）
+    if not enum_registry.validate_enum_item_name(item_name):
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        raise ExportError(
+            f"{prefix}枚举项名称 '{item_name}' 不符合C#命名规范（必须大写驼峰式）。"
+            f"枚举类型: {enum_name}"
+        )
+    
+    # 获取枚举值
+    try:
+        enum_value = enum_registry.get_enum_value(enum_name, item_name)
+        return enum_value
+    except ExportError as e:
+        # 添加位置信息
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        raise ExportError(f"{prefix}{str(e)}")
+
+
+def _convert_list_enum(enum_name: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> List[int]:
+    """
+    转换枚举列表类型：list(enum(枚举名))
+    
+    Returns:
+        枚举值列表（整数列表）
+    """
+    result: List[int] = []
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return result  # 列表允许为空
+    
+    if isinstance(value, str):
+        item_names = [v.strip() for v in value.split(",") if v.strip()]
+        for item_name in item_names:
+            enum_value = _convert_enum(enum_name, item_name, field, sheet, row, col)
+            result.append(enum_value)
+        return result
+    
+    # 单元素
+    try:
+        enum_value = _convert_enum(enum_name, value, field, sheet, row, col)
+        result.append(enum_value)
+        return result
+    except Exception as e:
+        raise ValueError(f"无法将 {value} 转换为 list(enum({enum_name})): {e}")
+
+
+def _convert_dict_enum(type_str: str, enum_name: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> Dict[Any, int]:
+    """
+    转换字典枚举类型：dict(..., enum(枚举名))
+    
+    Returns:
+        字典，值为枚举值（整数）
+    """
+    result: Dict[Any, int] = {}
+    type_match = re.search(r"\((.*)\)", type_str)
+    if not type_match or value is None:
+        return result
+    
+    key_type_str, _ = map(str.strip, type_match.group(1).split(","))
+    # 解析字典
+    for line in str(value).splitlines():
+        if ":" in line:
+            key, val = map(str.strip, line.split(":", 1))
+            # key 只支持基础类型
+            key_conv = PRIMITIVE_TYPE_MAPPING.get(key_type_str, str)
+            k = key_conv(key)
+            # value 是枚举项名称，转换为枚举值
+            enum_value = _convert_enum(enum_name, val, field, sheet, row, col)
+            result[k] = enum_value
+    return result
+
+
 def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None):
-    """递归类型转换+范围检查。支持基础、list、dict。"""
+    """递归类型转换+范围检查。支持基础、list、dict、enum。"""
     type_str = type_str.strip()
     if type_str in PRIMITIVE_TYPE_MAPPING:
         v = PRIMITIVE_TYPE_MAPPING[type_str](value)
@@ -221,5 +381,10 @@ def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str
         return _convert_list(type_str, value, field=field, sheet=sheet, row=row, col=col)
     if type_str.startswith("dict"):
         return _convert_dict(type_str, value, field=field, sheet=sheet, row=row, col=col)
+    # 枚举类型
+    enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", type_str, re.IGNORECASE)
+    if enum_match:
+        enum_name = enum_match.group(1).strip()
+        return _convert_enum(enum_name, value, field=field, sheet=sheet, row=row, col=col)
     # 其它类型暂不递归
     return value

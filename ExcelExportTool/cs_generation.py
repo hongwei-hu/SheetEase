@@ -143,11 +143,25 @@ def generate_script_file(sheet_name: str,
     """
     生成主脚本文件：
     """
+    # 检查是否有枚举类型字段，如果有则添加using语句
+    has_enum = False
+    import re
+    for type_str in properties_dict.values():
+        # 检查是否是枚举类型
+        if re.search(r"enum\s*\(", type_str, re.IGNORECASE):
+            has_enum = True
+            break
+    
+    # 构建using语句
+    using_str = USING_NAMESPACE_STR
+    if has_enum:
+        using_str = "using System.Collections.Generic;\nusing Newtonsoft.Json;\nusing Data.TableScript;\n\n"
+    
     info_class = f"{auto_generated_summary_string}\n{generate_info_class(sheet_name, properties_dict, property_remarks)}"
     data_class = f"{generate_data_class(sheet_name, need_generate_keys, composite_keys, composite_multiplier)}"
     # 两块之间保持一个空行
     file_content = f"{info_class}\n\n{data_class}"
-    final_content = USING_NAMESPACE_STR + NAMESPACE_WRAPPER_STR.format(add_indentation(file_content))
+    final_content = using_str + NAMESPACE_WRAPPER_STR.format(add_indentation(file_content))
     cs_file_path = os.path.join(output_folder, f"{sheet_name}{file_suffix}.cs")
     write_to_file(final_content, cs_file_path)
 
