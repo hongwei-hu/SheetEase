@@ -94,11 +94,39 @@ def available_csharp_enum_name(name: str) -> bool:
     return is_valid_csharp_identifier(name)
 
 
-def convert_to_type(type_str: str, value: Any, field: str | None = None, sheet: str | None = None, row: int | None = None, col: int | None = None) -> Any:
-    """根据类型字符串转换值 (支持基础/list/dict/枚举/自定义全限定类型)"""
+def convert_to_type(
+    type_str: str,
+    value: Any,
+    field: str | None = None,
+    sheet: str | None = None,
+    row: int | None = None,
+    col: int | None = None
+) -> Any:
+    """
+    根据类型字符串转换值，支持基础类型、list、dict、枚举和自定义全限定类型。
+    
+    Args:
+        type_str: 类型字符串，如 "int", "list(int)", "dict(int,string)", "enum(EnumName)"
+        value: 要转换的值
+        field: 字段名（用于错误提示）
+        sheet: 表名（用于错误提示）
+        row: 行号（用于错误提示）
+        col: 列号（用于错误提示）
+    
+    Returns:
+        转换后的值，类型取决于type_str
+    
+    Raises:
+        ValueError: 类型转换失败
+        UnknownCustomTypeError: 未知的自定义类型
+        CustomTypeParseError: 自定义类型解析失败
+        ExportError: 枚举相关错误
+    """
     if not type_str:
         raise ValueError("空类型定义")
     type_str = type_str.strip()
+    if not type_str:
+        raise ValueError("空类型定义")
 
     # 解析类型注解
     kind, base_type = parse_type_annotation(type_str)
@@ -155,7 +183,7 @@ def _convert_primitive(type_str: str, value: Any, field: str = None, sheet: str 
 
 
 def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field: str = None, sheet: str = None, row: int = None, col: int = None):
-    """对C#基础类型做范围/合法性检查，超出范围时抛出异常，支持表名/行/列定位"""
+    """对C#基础类型做范围/合法性检查，超出范围时发出警告，转换失败时抛出异常，支持表名/行/列定位"""
     prefix = f"[{sheet}] " if sheet else ""
     if row is not None:
         prefix += f"行{row} "
@@ -168,7 +196,10 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
         try:
             ival = int(v)
             if ival < -2147483648 or ival > 2147483647:
-                raise ValueError(f"{prefix}值{raw!r}超出C# int范围[-2147483648,2147483647]，实际为{ival}")
+                log_warn(f"{prefix}值{raw!r}超出C# int范围[-2147483648,2147483647]，实际为{ival}")
+        except ValueError:
+            # 重新抛出 ValueError（转换失败，不是范围问题）
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# int")
         except Exception:
             raise ValueError(f"{prefix}值{raw!r}无法转换为C# int")
     # float: [-3.4028235e38, 3.4028235e38]
@@ -176,7 +207,10 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
         try:
             fval = float(v)
             if abs(fval) > 3.4028235e38:
-                raise ValueError(f"{prefix}值{raw!r}超出C# float范围[-3.4028235e38,3.4028235e38]，实际为{fval}")
+                log_warn(f"{prefix}值{raw!r}超出C# float范围[-3.4028235e38,3.4028235e38]，实际为{fval}")
+        except ValueError:
+            # 重新抛出 ValueError（转换失败）
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# float")
         except Exception:
             raise ValueError(f"{prefix}值{raw!r}无法转换为C# float")
     # bool: 仅允许true/false/1/0，空值(None/"")视为False且不警告
@@ -185,11 +219,11 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
             return  # 空值不警告
         sval = str(raw).strip().lower()
         if sval not in ("1", "0", "true", "false"):
-            raise ValueError(f"{prefix}值{raw!r}不是C# bool允许的取值(true/false/1/0)")
+            log_warn(f"{prefix}值{raw!r}不是C# bool允许的取值(true/false/1/0)")
     # string: 警告超长
     elif type_str in ("str", "string"):
         if isinstance(v, str) and len(v) > 65535:
-            raise ValueError(f"{prefix}字符串长度{len(v)}超出C# string推荐上限65535，可能导致序列化或存储异常")
+            log_warn(f"{prefix}字符串长度{len(v)}超出C# string推荐上限65535，可能导致序列化或存储异常")
 
 
 def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> Dict[Any, Any]:

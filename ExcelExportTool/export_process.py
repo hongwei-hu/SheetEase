@@ -27,6 +27,24 @@ def process_excel_file(
     csfile_output_folder: Optional[str],
     enum_output_folder: Optional[str],
 ) -> Optional[WorksheetData]:
+    """
+    处理单个Excel文件，生成JSON和C#代码。
+    
+    Args:
+        excel_path: Excel文件路径
+        file_sheet_map: 文件名到sheet名的映射（用于检测冲突）
+        output_client_folder: 客户端JSON输出目录（可选）
+        output_project_folder: 工程JSON输出目录（可选）
+        csfile_output_folder: C#脚本输出目录（可选）
+        enum_output_folder: 枚举输出目录（可选）
+    
+    Returns:
+        WorksheetData对象，如果处理失败则返回None
+    
+    Raises:
+        SheetNameConflictError: Sheet名冲突
+        ExportError: 导出错误
+    """
     try:
         wb = openpyxl.load_workbook(str(excel_path), data_only=True)
     except Exception as e:
@@ -58,7 +76,13 @@ def process_excel_file(
     log_info(f"完成 {excel_path.name} \n")
     return main_sheet_data
 
-def cleanup_files(output_folders):
+def cleanup_files(output_folders: list[Optional[str]]) -> None:
+    """
+    清理输出目录中未在本次生成中出现的文件。
+    
+    Args:
+        output_folders: 输出目录列表，None值会被忽略
+    """
     created = set(get_created_files())
     from pathlib import Path
     stale = []
@@ -99,6 +123,26 @@ def batch_excel_to_json(
     dry_run: bool = False,
     auto_cleanup: bool = True,
 ) -> None:
+    """
+    批量处理Excel文件，生成JSON和C#代码。
+    
+    流程分为两个阶段：
+    1. 第一阶段：收集并导出所有枚举
+    2. 第二阶段：处理表格数据，生成JSON和C#脚本
+    
+    Args:
+        source_folder: Excel文件源目录
+        output_client_folder: 客户端JSON输出目录（可选）
+        output_project_folder: 工程JSON输出目录（可选）
+        csfile_output_folder: C#脚本输出目录（可选）
+        enum_output_folder: 枚举输出目录（可选）
+        diff_only: 是否仅在有差异时写入文件
+        dry_run: 是否为试运行模式（不实际写入文件）
+        auto_cleanup: 是否自动清理未使用的文件
+    
+    Raises:
+        ExportError: 导出过程中的各种错误
+    """
     start = time.time()
     log_sep("开始导表")
     log_info(f"Excel目录: {source_folder}")

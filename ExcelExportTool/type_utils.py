@@ -4,6 +4,7 @@ Extracted from worksheet_data and cs_generation to centralize type logic.
 """
 from typing import Tuple, Optional
 import re
+from .exceptions import ExportError
 
 
 def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
@@ -52,6 +53,52 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
         return "dict", None
     
     return "scalar", base_norm(t)
+
+
+def validate_type_annotation(type_str: str) -> Tuple[bool, str]:
+    """
+    验证类型注解的合法性
+    
+    Args:
+        type_str: 类型注解字符串
+    
+    Returns:
+        (是否合法, 错误消息)
+    """
+    if not type_str or not isinstance(type_str, str):
+        return False, "类型注解为空或不是字符串"
+    
+    type_str = type_str.strip()
+    if not type_str:
+        return False, "类型注解为空"
+    
+    # 检查括号匹配
+    if type_str.count('(') != type_str.count(')'):
+        return False, "括号不匹配"
+    
+    # 检查嵌套深度（防止过深）
+    depth = 0
+    max_depth = 0
+    for char in type_str:
+        if char == '(':
+            depth += 1
+            max_depth = max(max_depth, depth)
+        elif char == ')':
+            depth -= 1
+        if depth < 0:
+            return False, "括号顺序错误"
+    
+    if max_depth > 3:  # 限制嵌套深度
+        return False, f"嵌套深度过深: {max_depth} (最大允许3层)"
+    
+    # 检查基本格式：不能有连续的逗号、不能以逗号开头/结尾
+    if type_str.startswith(',') or type_str.endswith(','):
+        return False, "类型注解不能以逗号开头或结尾"
+    
+    if ',,' in type_str:
+        return False, "类型注解不能包含连续的逗号"
+    
+    return True, ""
 
 
 def convert_type_to_csharp(type_str: str) -> str:
