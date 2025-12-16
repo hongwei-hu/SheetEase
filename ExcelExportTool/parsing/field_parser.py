@@ -17,27 +17,9 @@ REF_PREFIX_RE = re.compile(r"^\s*\[(?P<sheet>[^:/\]]+)(?:/(?P<field>[^\]]+))?\]\
 ASSET_PREFIX_RE = re.compile(r"^\s*\[(?:asset)(?::(?P<ext>[A-Za-z0-9_]+))?\]\s*(?P<name>.+)$", re.IGNORECASE)
 
 
-def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
-    """解析类型注解字符串，返回 (kind, base_type)"""
-    t = (type_str or "").strip().lower()
-    
-    def base_norm(s: str) -> str:
-        s = s.strip().lower()
-        if s in ("int", "int32", "integer"):
-            return "int"
-        if s in ("float", "double"):
-            return "float"
-        if s in ("str", "string"):
-            return "string"
-        if s in ("bool", "boolean"):
-            return "bool"
-        return s
-    
-    if t.startswith("list(") and t.endswith(")"):
-        return "list", base_norm(t[5:-1])
-    if t.startswith("dict(") and t.endswith(")"):
-        return "dict", None
-    return "scalar", base_norm(t)
+# parse_type_annotation 已移至 type_utils.py 以支持枚举类型
+# 这里重新导出以保持向后兼容
+from ..utils.type_utils import parse_type_annotation
 
 
 def value_type_ok(base: str, v: any) -> bool:

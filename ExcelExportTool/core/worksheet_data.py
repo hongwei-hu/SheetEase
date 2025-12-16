@@ -38,8 +38,8 @@ from ..parsing.field_parser import (
     parse_ref_prefix,
     parse_asset_prefix,
     parse_key_prefix,
-    parse_type_annotation,
 )
+from ..utils.type_utils import parse_type_annotation
 from ..validation.worksheet_validator import (
     check_hidden_and_merged,
     check_interface_field_types,

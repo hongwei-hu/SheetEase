@@ -12,7 +12,8 @@ from ..parsing.data_processing import available_csharp_enum_name
 from ..exceptions import InvalidEnumNameError, DuplicatePrimaryKeyError
 from ..utils.log import log_warn
 from ..utils.user_utils import user_confirm
-from ..parsing.field_parser import parse_type_annotation, value_type_ok
+from ..parsing.field_parser import value_type_ok
+from ..utils.type_utils import parse_type_annotation
 
 
 def check_hidden_and_merged(worksheet, sheet_name: str) -> None:

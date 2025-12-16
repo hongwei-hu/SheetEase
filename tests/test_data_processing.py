@@ -17,13 +17,13 @@ class TestConvertPrimitiveTypes:
         """测试int溢出"""
         # 超出C# int范围的值应该发出警告，但不抛出异常
         from unittest.mock import patch
-        with patch('ExcelExportTool.data_processing.log_warn') as mock_warn:
+        with patch('ExcelExportTool.parsing.data_processing.log_warn') as mock_warn:
             # 应该成功转换，但会发出警告
             result = convert_to_type("int", "2147483648")
             assert result == 2147483648
             mock_warn.assert_called_once()
         
-        with patch('ExcelExportTool.data_processing.log_warn') as mock_warn:
+        with patch('ExcelExportTool.parsing.data_processing.log_warn') as mock_warn:
             result = convert_to_type("int", "-2147483649")
             assert result == -2147483649
             mock_warn.assert_called_once()

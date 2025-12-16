@@ -8,7 +8,7 @@ def test_int_range():
     from contextlib import nullcontext
     with nullcontext():
         from unittest.mock import patch
-        with patch('ExcelExportTool.data_processing.log_warn') as mock_warn:
+        with patch('ExcelExportTool.parsing.data_processing.log_warn') as mock_warn:
             data_processing._check_csharp_primitive_range("int", 2**31, raw=str(2**31), field="test", sheet="sheet")
             mock_warn.assert_called()
     # 正常值无警告

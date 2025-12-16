@@ -13,7 +13,8 @@ from ..utils.naming_config import (
     REFERENCE_ALLOW_EMPTY_INT_VALUES,
     REFERENCE_ALLOW_EMPTY_STRING_VALUES,
 )
-from ..parsing.field_parser import parse_type_annotation, value_type_ok
+from ..parsing.field_parser import value_type_ok
+from ..utils.type_utils import parse_type_annotation
 
 
 def infer_base_from_value(v: Any) -> Optional[str]:
