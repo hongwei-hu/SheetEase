@@ -9,14 +9,15 @@ import os
 import shutil
 import traceback
 from .worksheet_data import WorksheetData
-from .cs_generation import generate_enum_file_from_sheet, generate_enum_file, get_created_files, set_output_options
-from .log import log_info, log_warn, log_error, log_success, log_sep, green_filename, log_warn_summary
-from .exceptions import SheetNameConflictError, ExportError
-from .exceptions import InvalidFieldNameError
-from .exceptions import WriteFileError
-from .exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTypeError
-from .enum_registry import get_enum_registry, reset_enum_registry
-from .naming_config import ENUM_KEYS_SUFFIX
+from ..utils.user_utils import user_confirm
+from ..generation.cs_generation import generate_enum_file_from_sheet, generate_enum_file, get_created_files, set_output_options
+from ..utils.log import log_info, log_warn, log_error, log_success, log_sep, green_filename, log_warn_summary
+from ..exceptions import SheetNameConflictError, ExportError
+from ..exceptions import InvalidFieldNameError
+from ..exceptions import WriteFileError
+from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTypeError
+from ..generation.enum_registry import get_enum_registry, reset_enum_registry
+from ..utils.naming_config import ENUM_KEYS_SUFFIX
 REPORT = None  # 报表文件输出已移除
 
 def process_excel_file(
@@ -101,7 +102,6 @@ def cleanup_files(output_folders: list[Optional[str]]) -> None:
     log_warn("以下文件未在本次生成中出现：", immediate=True)
     for f in stale:
         log_warn(f" - {f}", immediate=True)
-    from .worksheet_data import user_confirm
     msg = "是否删除这些文件?(y/n): "
     if user_confirm(msg, title="文件删除确认"):
         for f in stale:

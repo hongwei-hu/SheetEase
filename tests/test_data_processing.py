@@ -1,6 +1,6 @@
 """单元测试：data_processing模块"""
 import pytest
-from ExcelExportTool.data_processing import convert_to_type, PRIMITIVE_TYPE_MAPPING
+from ExcelExportTool.parsing.data_processing import convert_to_type, PRIMITIVE_TYPE_MAPPING
 from ExcelExportTool.exceptions import ExportError
 
 

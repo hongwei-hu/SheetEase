@@ -5,11 +5,11 @@
 
 import re
 from typing import Any, Callable, Dict, List, Optional
-from .exceptions import UnknownCustomTypeError, CustomTypeParseError
-from .log import log_warn
-from .naming_utils import is_valid_csharp_identifier
-from .type_utils import parse_type_annotation
-from .enum_registry import get_enum_registry
+from ..exceptions import UnknownCustomTypeError, CustomTypeParseError
+from ..utils.log import log_warn
+from ..utils.naming_utils import is_valid_csharp_identifier
+from ..utils.type_utils import parse_type_annotation
+from ..generation.enum_registry import get_enum_registry
 
 # 基本类型映射
 def _parse_bool(x):
@@ -286,7 +286,7 @@ def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = No
     Raises:
         ExportError: 如果枚举不存在、枚举项不存在或值为空
     """
-    from .exceptions import ExportError
+    from ..exceptions import ExportError
     
     enum_registry = get_enum_registry()
     

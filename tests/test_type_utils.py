@@ -1,6 +1,6 @@
 """单元测试：type_utils模块"""
 import pytest
-from ExcelExportTool.type_utils import validate_type_annotation, parse_type_annotation, convert_type_to_csharp
+from ExcelExportTool.utils.type_utils import validate_type_annotation, parse_type_annotation, convert_type_to_csharp
 from ExcelExportTool.exceptions import ExportError
 
 

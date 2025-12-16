@@ -3,7 +3,7 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
-from ExcelExportTool.path_utils import validate_path, sanitize_filename, ensure_safe_path
+from ExcelExportTool.utils.path_utils import validate_path, sanitize_filename, ensure_safe_path
 from ExcelExportTool.exceptions import PathTraversalError, InvalidPathError
 
 

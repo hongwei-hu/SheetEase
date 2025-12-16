@@ -5,7 +5,7 @@ ensuring they don't escape from allowed directories.
 """
 from pathlib import Path
 from typing import Optional
-from .exceptions import PathTraversalError, InvalidPathError
+from ..exceptions import PathTraversalError, InvalidPathError
 
 
 def validate_path(path: str, base_dir: Optional[str] = None) -> Path:

@@ -1,5 +1,5 @@
 import pytest
-from ExcelExportTool import data_processing
+from ExcelExportTool.parsing import data_processing
 
 def test_int_range():
     # 超范围应有警告

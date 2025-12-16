@@ -1,6 +1,6 @@
 # Author: huhongwei 306463233@qq.com
 # MIT License
-from .exceptions import DuplicateFieldError
+from ..exceptions import DuplicateFieldError
 from collections import Counter
 
 def read_cell_values(sheet, row_index):

@@ -6,9 +6,9 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Dict, Optional, List, Iterable, Tuple
-from .log import log_warn, log_info
-from .naming_config import CS_FILE_SUFFIX
-from .type_utils import convert_type_to_csharp
+from ..utils.log import log_warn, log_info
+from ..utils.naming_config import CS_FILE_SUFFIX
+from ..utils.type_utils import convert_type_to_csharp
 
 # ================== 常量与内部配置（不改变原有输出格式） ==================
 # CONST 区域：集中所有内部可调开关，方便阅读与维护
@@ -269,5 +269,5 @@ def write_to_file(content: str, file_path: str) -> None:
                     pass
     except Exception as e:
         # 将写入失败升级为异常，便于上层统一处理
-        from .exceptions import WriteFileError
+        from ..exceptions import WriteFileError
         raise WriteFileError(file_path, str(e))

@@ -19,15 +19,15 @@ import contextlib
 
 # 让 PyInstaller 静态分析到这些模块（即使运行时用兜底方式导入）
 try:  # noqa: F401
-    from ExcelExportTool import export_process as _ep_collect  # type: ignore
-    from ExcelExportTool import cs_generation as _cg_collect  # type: ignore
-    from ExcelExportTool import worksheet_data as _wd_collect  # type: ignore
-    from ExcelExportTool import data_processing as _dp_collect  # type: ignore
-    from ExcelExportTool import excel_processing as _xp_collect  # type: ignore
-    from ExcelExportTool import type_utils as _tu_collect  # type: ignore
-    from ExcelExportTool import naming_config as _nc_collect  # type: ignore
-    from ExcelExportTool import naming_utils as _nu_collect  # type: ignore
-    from ExcelExportTool import log as _log_collect  # type: ignore
+    from ExcelExportTool.core import export_process as _ep_collect  # type: ignore
+    from ExcelExportTool.generation import cs_generation as _cg_collect  # type: ignore
+    from ExcelExportTool.core import worksheet_data as _wd_collect  # type: ignore
+    from ExcelExportTool.parsing import data_processing as _dp_collect  # type: ignore
+    from ExcelExportTool.parsing import excel_processing as _xp_collect  # type: ignore
+    from ExcelExportTool.utils import type_utils as _tu_collect  # type: ignore
+    from ExcelExportTool.utils import naming_config as _nc_collect  # type: ignore
+    from ExcelExportTool.utils import naming_utils as _nu_collect  # type: ignore
+    from ExcelExportTool.utils import log as _log_collect  # type: ignore
     from ExcelExportTool import exceptions as _ex_collect  # type: ignore
 except Exception:  # 在开发环境无影响
     _ep_collect = None  # type: ignore
@@ -59,7 +59,7 @@ if str(APP_DIR / 'ExcelExportTool') not in sys.path:
 def _import_batch_excel_to_json():
     """稳健导入 batch_excel_to_json，兼容打包与源码运行。"""
     try:
-        from ExcelExportTool.export_process import batch_excel_to_json  # type: ignore
+        from ExcelExportTool.core.export_process import batch_excel_to_json  # type: ignore
         return batch_excel_to_json
     except Exception:
         # 尝试相对导入（当作为包运行时）

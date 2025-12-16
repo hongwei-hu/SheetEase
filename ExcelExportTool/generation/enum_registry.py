@@ -2,9 +2,9 @@
 # MIT License
 """枚举注册表：管理所有枚举定义，提供枚举验证和值转换功能"""
 from typing import Dict, Set, Optional, Tuple
-from .naming_utils import is_valid_csharp_identifier
-from .log import log_error
-from .exceptions import ExportError
+from ..utils.naming_utils import is_valid_csharp_identifier
+from ..utils.log import log_error
+from ..exceptions import ExportError
 
 
 class EnumRegistry:

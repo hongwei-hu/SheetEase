@@ -4,7 +4,7 @@ Extracted from worksheet_data and cs_generation to centralize type logic.
 """
 from typing import Tuple, Optional
 import re
-from .exceptions import ExportError
+from ..exceptions import ExportError
 
 
 def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:

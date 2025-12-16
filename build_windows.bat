@@ -15,15 +15,15 @@ REM Common flags to ensure all submodules are collected and build is clean
 set COMMON_FLAGS=--noconsole --clean --noconfirm ^
   --collect-submodules ExcelExportTool ^
   --hidden-import ExcelExportTool ^
-  --hidden-import ExcelExportTool.export_process ^
-  --hidden-import ExcelExportTool.worksheet_data ^
-  --hidden-import ExcelExportTool.cs_generation ^
-  --hidden-import ExcelExportTool.data_processing ^
-  --hidden-import ExcelExportTool.excel_processing ^
-  --hidden-import ExcelExportTool.type_utils ^
-  --hidden-import ExcelExportTool.naming_config ^
-  --hidden-import ExcelExportTool.naming_utils ^
-  --hidden-import ExcelExportTool.log ^
+  --hidden-import ExcelExportTool.core.export_process ^
+  --hidden-import ExcelExportTool.core.worksheet_data ^
+  --hidden-import ExcelExportTool.generation.cs_generation ^
+  --hidden-import ExcelExportTool.parsing.data_processing ^
+  --hidden-import ExcelExportTool.parsing.excel_processing ^
+  --hidden-import ExcelExportTool.utils.type_utils ^
+  --hidden-import ExcelExportTool.utils.naming_config ^
+  --hidden-import ExcelExportTool.utils.naming_utils ^
+  --hidden-import ExcelExportTool.utils.log ^
   --hidden-import ExcelExportTool.exceptions
 
 REM Optionally include ProjectFolder as runtime data (for interface/type checks)
