@@ -15,8 +15,10 @@ class EnumRegistry:
         self._enums: Dict[str, Dict[str, int]] = {}
         # 枚举名 -> 命名空间
         self._enum_namespaces: Dict[str, str] = {}
+        # 枚举名 -> 来源信息（用于错误提示）
+        self._enum_sources: Dict[str, str] = {}
     
-    def register_enum(self, enum_name: str, enum_items: Dict[str, int], namespace: str = "Data.TableScript") -> None:
+    def register_enum(self, enum_name: str, enum_items: Dict[str, int], namespace: str = "Data.TableScript", source: str = "") -> None:
         """
         注册一个枚举
         
@@ -24,6 +26,10 @@ class EnumRegistry:
             enum_name: 枚举类型名称（如 "SampleDataKeys"）
             enum_items: 枚举项名称到枚举值的映射（如 {"ItemA": 0, "ItemB": 1}）
             namespace: 枚举所在的命名空间
+            source: 枚举来源信息（用于错误提示，如 "文件A.xlsx" 或 "文件B.xlsx/Enum-ItemType"）
+        
+        Raises:
+            ExportError: 如果枚举重复定义（即使枚举项相同也不允许）
         """
         if not is_valid_csharp_identifier(enum_name):
             raise ExportError(f"枚举类型名称不符合C#命名规范: {enum_name}")
@@ -32,16 +38,27 @@ class EnumRegistry:
             # 检查是否重复定义
             existing_items = set(self._enums[enum_name].keys())
             new_items = set(enum_items.keys())
+            existing_source = self._enum_sources.get(enum_name, "未知来源")
+            
             if existing_items != new_items:
+                # 枚举项不一致
                 raise ExportError(
-                    f"枚举 {enum_name} 重复定义，但枚举项不一致。"
-                    f"已有: {sorted(existing_items)}, 新定义: {sorted(new_items)}"
+                    f"枚举 {enum_name} 重复定义，但枚举项不一致。\n"
+                    f"已有定义（来源: {existing_source}）: {sorted(existing_items)}\n"
+                    f"新定义（来源: {source}）: {sorted(new_items)}"
                 )
-            # 如果枚举项相同，允许重复注册（可能在不同文件中定义）
-            return
+            else:
+                # 枚举项相同，但仍然不允许重复定义
+                raise ExportError(
+                    f"枚举 {enum_name} 重复定义。\n"
+                    f"已有定义（来源: {existing_source}）\n"
+                    f"重复定义（来源: {source}）\n"
+                    f"即使枚举项相同，也不允许在不同位置重复定义同一个枚举。"
+                )
         
         self._enums[enum_name] = enum_items.copy()
         self._enum_namespaces[enum_name] = namespace
+        self._enum_sources[enum_name] = source
     
     def has_enum(self, enum_name: str) -> bool:
         """检查枚举是否存在"""

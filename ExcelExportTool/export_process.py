@@ -208,61 +208,89 @@ def batch_excel_to_json(
                                 f"枚举 {enum_type_name} (来自 {excel_path.name}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
                                 f"枚举项必须以大写字母开头（大写驼峰式）"
                             )
-                        enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript")
+                        # 注册枚举，记录来源信息
+                        source_info = f"{excel_path.name} (主键为string类型)"
+                        enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
                         enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
                         log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name})")
+        except ExportError as e:
+            # 枚举相关的错误直接抛出，中断导表
+            log_error(f"枚举收集失败: {e}")
+            raise
         except Exception as e:
             log_warn(f"收集枚举时出错 {excel_path.name}: {e}")
         
         # 方式2：检查是否有Enum-开头的sheet
-        if len(wb.worksheets) > 1 and enum_output_folder:
-            enum_tag = "Enum-"
-            for sheet in wb.worksheets[1:]:
-                if sheet.title.startswith(enum_tag):
-                    enum_type_name = sheet.title.replace(enum_tag, "")
-                    enum_items = {}
-                    enum_remarks = []  # 收集注释（来自第3列）
-                    rows = list(sheet.iter_rows(min_row=2))
-                    for r in rows:
-                        if len(r) < 2:
-                            continue
-                        name = r[0].value
-                        val = r[1].value
-                        if name is None or val is None:
-                            continue
-                        name_str = str(name).strip()
-                        try:
-                            val_int = int(val)
-                            enum_items[name_str] = val_int
-                            # 收集注释：第3列（索引2）
-                            remark = None
-                            if len(r) > 2 and r[2].value:
-                                remark = str(r[2].value).strip()
-                                if not remark:
-                                    remark = None
-                            enum_remarks.append(remark)
-                        except (ValueError, TypeError):
-                            log_warn(f"{sheet.title} 枚举值非整数: {name}={val}")
-                    
-                    if enum_items:
-                        # 验证枚举项名称格式
-                        invalid_items = []
-                        for item_name in enum_items.keys():
-                            if not enum_registry.validate_enum_item_name(item_name):
-                                invalid_items.append(item_name)
-                        if invalid_items:
-                            raise ExportError(
-                                f"枚举 {enum_type_name} (来自 {excel_path.name}/{sheet.title}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
-                                f"枚举项必须以大写字母开头（大写驼峰式）"
-                            )
-                        enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript")
-                        enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
-                        log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name}/{sheet.title})")
+        try:
+            if len(wb.worksheets) > 1 and enum_output_folder:
+                enum_tag = "Enum-"
+                for sheet in wb.worksheets[1:]:
+                    if sheet.title.startswith(enum_tag):
+                        enum_type_name = sheet.title.replace(enum_tag, "")
+                        enum_items = {}
+                        enum_remarks = []  # 收集注释（来自第3列）
+                        rows = list(sheet.iter_rows(min_row=2))
+                        for r in rows:
+                            if len(r) < 2:
+                                continue
+                            name = r[0].value
+                            val = r[1].value
+                            if name is None or val is None:
+                                continue
+                            name_str = str(name).strip()
+                            try:
+                                val_int = int(val)
+                                enum_items[name_str] = val_int
+                                # 收集注释：第3列（索引2）
+                                remark = None
+                                if len(r) > 2 and r[2].value:
+                                    remark = str(r[2].value).strip()
+                                    if not remark:
+                                        remark = None
+                                enum_remarks.append(remark)
+                            except (ValueError, TypeError):
+                                log_warn(f"{sheet.title} 枚举值非整数: {name}={val}")
+                        
+                        if enum_items:
+                            # 验证枚举项名称格式
+                            invalid_items = []
+                            for item_name in enum_items.keys():
+                                if not enum_registry.validate_enum_item_name(item_name):
+                                    invalid_items.append(item_name)
+                            if invalid_items:
+                                raise ExportError(
+                                    f"枚举 {enum_type_name} (来自 {excel_path.name}/{sheet.title}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
+                                    f"枚举项必须以大写字母开头（大写驼峰式）"
+                                )
+                            # 注册枚举，记录来源信息
+                            source_info = f"{excel_path.name}/{sheet.title}"
+                            enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
+                            enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
+                            log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name}/{sheet.title})")
+        except ExportError as e:
+            # 枚举相关的错误直接抛出，中断导表
+            log_error(f"枚举收集失败: {e}")
+            raise
+        except Exception as e:
+            log_warn(f"收集枚举时出错（方式2）{excel_path.name}: {e}")
         
         wb.close()
     
     # 导出所有枚举文件
     if enum_output_folder and enum_files_to_export:
+        # 最终检查：确保没有重复的枚举名（虽然register_enum已经检查过，但这里再次确认）
+        enum_names_seen = {}
+        for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
+            if enum_type_name in enum_names_seen:
+                existing_source = enum_names_seen[enum_type_name]
+                raise ExportError(
+                    f"发现重复的枚举定义: {enum_type_name}\n"
+                    f"已有定义（来源: {existing_source}）\n"
+                    f"重复定义（来源: {excel_path.name}）\n"
+                    f"任何情况下都不应该导出两个相同的枚举。"
+                )
+            enum_names_seen[enum_type_name] = excel_path.name
+        
         log_info(f"开始导出 {len(enum_files_to_export)} 个枚举...")
         for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
             enum_names = [item[0] for item in enum_data]
