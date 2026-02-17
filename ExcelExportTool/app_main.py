@@ -14,6 +14,7 @@ from pathlib import Path
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import ttk
 import re
 import contextlib
 
@@ -143,9 +144,22 @@ class TextRedirector:
     """Redirects stdout/stderr to a Tk Text widget with ANSI color support."""
     ANSI_RE = re.compile(r"\x1b\[(\d+)m")
 
-    def __init__(self, text: tk.Text):
+    KEYWORDS = (
+        '开始导表', '结束', '成功', '失败', '错误', '警告', '完成',
+        '引用检查', '收集枚举', '导出', '跳过'
+    )
+
+    def __init__(self, text: tk.Text, show_key_only_getter=None, summary_callback=None):
         self.text = text
         self._current_tag = 'ansi-normal'
+        self._show_key_only_getter = show_key_only_getter
+        self._summary_callback = summary_callback
+
+    def _is_key_line(self, data: str) -> bool:
+        if not data:
+            return False
+        plain = self.ANSI_RE.sub('', data)
+        return any(k in plain for k in self.KEYWORDS)
 
     def write(self, data: str):
         if not data:
@@ -160,6 +174,13 @@ class TextRedirector:
             self.text.see(tk.END)
 
         def _process():
+            if self._summary_callback:
+                try:
+                    self._summary_callback(data)
+                except Exception:
+                    pass
+            if self._show_key_only_getter and self._show_key_only_getter() and not self._is_key_line(data):
+                return
             pos = 0
             for m in self.ANSI_RE.finditer(data):
                 start, end = m.span()
@@ -199,7 +220,7 @@ class MainWindow:
     def __init__(self, master, init_cfg: dict | None = None):
         self.master = master
         master.title('SheetEase - 导表工具')
-        master.minsize(820, 520)
+        master.minsize(980, 620)
 
         # Config vars (支持 StringVar 和 BooleanVar)
         self.vars: dict[str, tk.Variable] = {
@@ -207,57 +228,102 @@ class MainWindow:
             'output_project': tk.StringVar(value=(init_cfg or {}).get('output_project', '')),
             'cs_output': tk.StringVar(value=(init_cfg or {}).get('cs_output', '')),
             'enum_output': tk.StringVar(value=(init_cfg or {}).get('enum_output', '')),
+            'show_key_logs': tk.BooleanVar(value=bool((init_cfg or {}).get('ui', {}).get('show_key_logs', True)) if isinstance((init_cfg or {}).get('ui', {}), dict) else True),
         }
+        self._recent_paths: dict[str, list[str]] = dict((init_cfg or {}).get('recent_paths', {})) if isinstance((init_cfg or {}).get('recent_paths', {}), dict) else {}
 
         # Layout root
-        # 仅让日志区域（最后的日志行）随窗口高度变化，其余区域保持紧凑
-        master.grid_rowconfigure(11, weight=1)
-        master.grid_columnconfigure(1, weight=1)
+        master.grid_rowconfigure(6, weight=1)
+        master.grid_columnconfigure(0, weight=1)
 
-        # 统计标签集合
+        # UI refs
+        self.path_inputs: dict[str, ttk.Combobox] = {}
+        self.path_status_labels: dict[str, tk.Label] = {}
         self.count_labels: dict[str, tk.Label] = {}
 
-        # Config form（每个目录输入行占用偶数行，下一行用于显示统计信息）
-        self._add_row(0, 'Excel 根目录:', 'excel_root')
-        self._add_count_label(1, 'excel_root')
-        self._add_row(2, '工程 JSON 输出目录:', 'output_project')
-        self._add_count_label(3, 'output_project')
-        self._add_row(4, 'C# 脚本输出目录:', 'cs_output')
-        self._add_count_label(5, 'cs_output')
-        self._add_row(6, '枚举输出目录:', 'enum_output')
-        self._add_count_label(7, 'enum_output')
+        # Header: 高频操作突出
+        header = tk.Frame(master, padx=12, pady=10)
+        header.grid(row=0, column=0, sticky='we')
+        header.grid_columnconfigure(0, weight=1)
+        tk.Label(header, text='SheetEase 导表工具', font=('Segoe UI', 12, 'bold')).grid(row=0, column=0, sticky='w')
+        self.btn_run = tk.Button(
+            header,
+            text='开始导出',
+            command=self.on_run,
+            bg='#2f855a',
+            fg='white',
+            activebackground='#276749',
+            relief='flat',
+            padx=18,
+            pady=6,
+        )
+        self.btn_run.grid(row=0, column=1, sticky='e')
 
-        # YooAsset 资产校验配置（可选）
+        # 基础配置区
+        self.config_frame = tk.LabelFrame(master, text='基础配置', padx=10, pady=8)
+        self.config_frame.grid(row=1, column=0, sticky='we', padx=12, pady=(0, 8))
+        self.config_frame.grid_columnconfigure(1, weight=1)
+
+        self._add_row(self.config_frame, 0, 'Excel 根目录', 'excel_root')
+        self._add_count_label(self.config_frame, 1, 'excel_root')
+        self._add_row(self.config_frame, 2, '工程 JSON 输出目录', 'output_project')
+        self._add_count_label(self.config_frame, 3, 'output_project')
+        self._add_row(self.config_frame, 4, 'C# 脚本输出目录', 'cs_output')
+        self._add_count_label(self.config_frame, 5, 'cs_output')
+        self._add_row(self.config_frame, 6, '枚举输出目录', 'enum_output')
+        self._add_count_label(self.config_frame, 7, 'enum_output')
+
+        # 高级设置折叠区
+        self._advanced_visible = bool((init_cfg or {}).get('ui', {}).get('show_advanced', False)) if isinstance((init_cfg or {}).get('ui', {}), dict) else False
+        self.btn_toggle_advanced = tk.Button(master, text='显示高级设置 ▾', command=self._toggle_advanced, relief='flat', fg='#444444')
+        self.btn_toggle_advanced.grid(row=2, column=0, sticky='w', padx=16, pady=(0, 6))
+
+        self.advanced_frame = tk.LabelFrame(master, text='高级设置', padx=10, pady=8)
+        self.advanced_frame.grid(row=3, column=0, sticky='we', padx=12, pady=(0, 8))
+        self.advanced_frame.grid_columnconfigure(1, weight=1)
+
         yoo = (init_cfg or {}).get('yooasset', {}) if isinstance((init_cfg or {}).get('yooasset', {}), dict) else {}
         self.vars['yooasset.collector_setting'] = tk.StringVar(value=yoo.get('collector_setting', ''))
         self.vars['yooasset.strict'] = tk.BooleanVar(value=bool(yoo.get('strict', False)))
-        self._add_file_row(8, 'YooAsset CollectorSetting.asset:', 'yooasset.collector_setting')
-        # 严格模式勾选（失败即中断），建议先关闭，稳定后再开启
-        tk.Checkbutton(self.master, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict']).grid(row=9, column=0, columnspan=3, sticky='w', padx=6, pady=(0,6))
+        self._add_file_row(self.advanced_frame, 0, 'YooAsset CollectorSetting.asset', 'yooasset.collector_setting')
+        tk.Checkbutton(self.advanced_frame, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict']).grid(row=1, column=0, columnspan=4, sticky='w', pady=(2, 2))
 
-        # Buttons
-        btn_frame = tk.Frame(master)
-        btn_frame.grid(row=10, column=0, columnspan=3, sticky='we', pady=(6, 6))
-        self.btn_save = tk.Button(btn_frame, text='保存配置', command=self.on_save)
-        self.btn_run = tk.Button(btn_frame, text='开始导出', command=self.on_run)
-        self.btn_clear = tk.Button(btn_frame, text='清空日志', command=self.on_clear)
-        # 自动运行导表勾选
+        if not self._advanced_visible:
+            self.advanced_frame.grid_remove()
+        self._refresh_advanced_toggle_text()
+
+        # 次操作区
+        self.controls_frame = tk.Frame(master, padx=12)
+        self.controls_frame.grid(row=4, column=0, sticky='we', pady=(0, 6))
         self.vars['auto_run'] = tk.BooleanVar(value=bool((init_cfg or {}).get('auto_run', False)))
-        self.chk_auto = tk.Checkbutton(btn_frame, text='打开时自动运行导表', variable=self.vars['auto_run'])
-        self.btn_save.pack(side='left', padx=4)
-        self.btn_run.pack(side='left', padx=4)
-        self.btn_clear.pack(side='left', padx=4)
-        self.chk_auto.pack(side='left', padx=12)
+        self.btn_save = tk.Button(self.controls_frame, text='保存配置', command=self.on_save)
+        self.btn_clear = tk.Button(self.controls_frame, text='清空日志', command=self.on_clear)
+        self.chk_auto = tk.Checkbutton(self.controls_frame, text='打开时自动运行导表', variable=self.vars['auto_run'])
+        self.btn_save.pack(side='left', padx=(0, 6))
+        self.btn_clear.pack(side='left', padx=(0, 10))
+        self.chk_auto.pack(side='left')
 
-        # Log area
-        self.log = scrolledtext.ScrolledText(master, wrap='word', height=18, bg='#000000', fg='#ffffff')
-        self.log.grid(row=11, column=0, columnspan=3, sticky='nsew', padx=6, pady=(0, 6))
+        # 运行摘要
+        self.summary_frame = tk.Frame(master, padx=12)
+        self.summary_frame.grid(row=5, column=0, sticky='we', pady=(0, 4))
+        self.summary_text = tk.StringVar(value='状态：待运行')
+        tk.Label(self.summary_frame, textvariable=self.summary_text, fg='#555555').pack(side='left')
+
+        # 日志工具栏 + 日志区
+        log_toolbar = tk.Frame(master, padx=12)
+        log_toolbar.grid(row=6, column=0, sticky='we')
+        tk.Checkbutton(log_toolbar, text='仅显示关键日志', variable=self.vars['show_key_logs']).pack(side='left')
+
+        self.log = scrolledtext.ScrolledText(master, wrap='word', height=18, bg='#111111', fg='#f5f5f5', insertbackground='#f5f5f5')
+        self.log.grid(row=7, column=0, sticky='nsew', padx=12, pady=(0, 10))
+        master.grid_rowconfigure(7, weight=1)
+
         # Configure ANSI color tags
-        self.log.tag_config('ansi-normal', foreground='#ffffff')
+        self.log.tag_config('ansi-normal', foreground='#f5f5f5')
         self.log.tag_config('ansi-red', foreground='#ff5555')
         self.log.tag_config('ansi-green', foreground='#50fa7b')
         self.log.tag_config('ansi-yellow', foreground='#f1fa8c')
-        self.logger = TextRedirector(self.log)
+        self.logger = TextRedirector(self.log, show_key_only_getter=lambda: bool(self.vars['show_key_logs'].get()), summary_callback=self._update_summary_from_log)
 
         # state
         self._running = False
@@ -282,44 +348,110 @@ class MainWindow:
             'cs_output': self.vars['cs_output'].get().strip(),
             'enum_output': self.vars['enum_output'].get().strip(),
             'auto_run': bool(self.vars['auto_run'].get()),
+            'recent_paths': self._recent_paths,
+            'ui': {
+                'show_advanced': bool(self._advanced_visible),
+                'show_key_logs': bool(self.vars['show_key_logs'].get()),
+            },
             'yooasset': {
                 'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
                 'strict': bool(self.vars['yooasset.strict'].get()),
             }
         }
 
-    def _add_row(self, row: int, label: str, key: str):
-        tk.Label(self.master, text=label).grid(row=row, column=0, sticky='w', padx=6, pady=6)
-        e = tk.Entry(self.master, textvariable=self.vars[key])
-        e.grid(row=row, column=1, sticky='we', padx=6, pady=6)
+    def _toggle_advanced(self):
+        self._advanced_visible = not self._advanced_visible
+        if self._advanced_visible:
+            self.advanced_frame.grid()
+        else:
+            self.advanced_frame.grid_remove()
+        self._refresh_advanced_toggle_text()
+
+    def _refresh_advanced_toggle_text(self):
+        self.btn_toggle_advanced.configure(text='隐藏高级设置 ▴' if self._advanced_visible else '显示高级设置 ▾')
+
+    @staticmethod
+    def _open_path(path: str):
+        if not path:
+            return
+        try:
+            p = Path(path)
+            target = p if p.is_dir() else p.parent
+            if os.name == 'nt':
+                os.startfile(str(target))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _record_recent_path(self, key: str, value: str):
+        value = (value or '').strip()
+        if not value:
+            return
+        if key not in self._recent_paths:
+            self._recent_paths[key] = []
+        items = [v for v in self._recent_paths[key] if v != value]
+        self._recent_paths[key] = [value] + items[:7]
+        cb = self.path_inputs.get(key)
+        if cb:
+            cb.configure(values=self._recent_paths.get(key, []))
+
+    def _status_for(self, key: str, path: str, detail_color: str) -> tuple[str, str]:
+        if not path:
+            return '未配置', '#999999'
+        if detail_color == '#ff5555':
+            return '需处理', '#ff5555'
+        return '可用', '#2f855a'
+
+    def _add_row(self, parent: tk.Misc, row: int, label: str, key: str):
+        tk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=(0, 8), pady=4)
+        cb = ttk.Combobox(parent, textvariable=self.vars[key], values=self._recent_paths.get(key, []))
+        cb.grid(row=row, column=1, sticky='we', padx=(0, 8), pady=4)
+        self.path_inputs[key] = cb
+
         def browse():
             cur = self.vars[key].get()
             initd = cur if os.path.isdir(cur) else str(APP_DIR)
             p = filedialog.askdirectory(initialdir=initd)
             if p:
                 self.vars[key].set(p)
-        tk.Button(self.master, text='浏览', command=browse).grid(row=row, column=2, padx=6, pady=6)
+
+        tk.Button(parent, text='浏览', command=browse).grid(row=row, column=2, padx=(0, 6), pady=4)
+        tk.Button(parent, text='打开', command=lambda k=key: self._open_path(self.vars[k].get())).grid(row=row, column=3, padx=(0, 2), pady=4)
+        status = tk.Label(parent, text='未配置', width=8, anchor='center', fg='#999999')
+        status.grid(row=row, column=4, padx=(8, 0), pady=4)
+        self.path_status_labels[key] = status
+
         # 路径变化时刷新统计
         try:
-            self.vars[key].trace_add('write', lambda *_, k=key: self._refresh_count_for(k))
+            self.vars[key].trace_add('write', lambda *_, k=key: self._on_path_changed(k))
         except Exception:
             pass
 
-    def _add_file_row(self, row: int, label: str, key: str):
-        tk.Label(self.master, text=label).grid(row=row, column=0, sticky='w', padx=6, pady=6)
-        e = tk.Entry(self.master, textvariable=self.vars[key])
-        e.grid(row=row, column=1, sticky='we', padx=6, pady=6)
+        cb.bind('<<ComboboxSelected>>', lambda *_ , k=key: self._on_path_changed(k))
+
+    def _on_path_changed(self, key: str):
+        self._refresh_count_for(key)
+
+    def _record_core_recent_paths(self):
+        for key in ['excel_root', 'output_project', 'cs_output', 'enum_output']:
+            self._record_recent_path(key, str(self.vars[key].get()))
+
+    def _add_file_row(self, parent: tk.Misc, row: int, label: str, key: str):
+        tk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=(0, 8), pady=4)
+        e = tk.Entry(parent, textvariable=self.vars[key])
+        e.grid(row=row, column=1, sticky='we', padx=(0, 8), pady=4)
+
         def browse_file():
             cur = self.vars[key].get()
             initd = os.path.dirname(cur) if os.path.isfile(cur) else (cur if os.path.isdir(cur) else str(APP_DIR))
             p = filedialog.askopenfilename(initialdir=initd, filetypes=[('Unity Asset','*.asset'), ('All Files','*.*')])
             if p:
                 self.vars[key].set(p)
-        tk.Button(self.master, text='选择文件', command=browse_file).grid(row=row, column=2, padx=6, pady=6)
+        tk.Button(parent, text='选择文件', command=browse_file).grid(row=row, column=2, padx=(0, 6), pady=4)
+        tk.Button(parent, text='打开', command=lambda k=key: self._open_path(self.vars[k].get())).grid(row=row, column=3, padx=(0, 2), pady=4)
 
-    def _add_count_label(self, row: int, key: str):
-        lbl = tk.Label(self.master, text='', anchor='w', fg='#888888')
-        lbl.grid(row=row, column=0, columnspan=3, sticky='w', padx=6, pady=(0, 6))
+    def _add_count_label(self, parent: tk.Misc, row: int, key: str):
+        lbl = tk.Label(parent, text='', anchor='w', fg='#777777')
+        lbl.grid(row=row, column=1, columnspan=4, sticky='w', pady=(0, 4))
         self.count_labels[key] = lbl
 
     def _refresh_counts(self):
@@ -331,10 +463,24 @@ class MainWindow:
             lbl = self.count_labels.get(key)
             if not lbl:
                 return
-            text, color = self._count_text_for(key, self.vars[key].get())
+            path = str(self.vars[key].get())
+            text, color = self._count_text_for(key, path)
             lbl.configure(text=text, fg=color)
+            st = self.path_status_labels.get(key)
+            if st:
+                s_text, s_color = self._status_for(key, path, color)
+                st.configure(text=s_text, fg=s_color)
         except Exception:
             pass
+
+    def _update_summary_from_log(self, data: str):
+        plain = re.sub(r"\x1b\[(\d+)m", '', data)
+        if '开始导表' in plain:
+            self.summary_text.set('状态：导出中…')
+        elif '总耗时' in plain and '成功' in plain:
+            self.summary_text.set(f'状态：{plain.strip()}')
+        elif '失败' in plain and '导表' in plain:
+            self.summary_text.set(f'状态：{plain.strip()}')
 
     @staticmethod
     def _safe_count(iterator) -> int:
@@ -440,7 +586,23 @@ class MainWindow:
                 pass
         return True, ''
 
+    def _set_running_ui(self, running: bool):
+        try:
+            if running:
+                self.btn_run.configure(text='导出中…', state='disabled')
+                self.btn_save.configure(state='disabled')
+                self.btn_clear.configure(state='disabled')
+                self.chk_auto.configure(state='disabled')
+            else:
+                self.btn_run.configure(text='开始导出', state='normal')
+                self.btn_save.configure(state='normal')
+                self.btn_clear.configure(state='normal')
+                self.chk_auto.configure(state='normal')
+        except Exception:
+            pass
+
     def on_save(self):
+        self._record_core_recent_paths()
         cfg = self._build_cfg()
         ok, msg = validate_config(cfg)
         if not ok:
@@ -463,6 +625,7 @@ class MainWindow:
         try:
             # 仅在启用自动运行时执行自动保存
             if 'auto_run' in self.vars and bool(self.vars['auto_run'].get()):
+                self._record_core_recent_paths()
                 cfg = self._build_cfg()
                 # 关闭时的保存不强校验，静默失败即可
                 try:
@@ -478,6 +641,7 @@ class MainWindow:
     def on_run(self):
         if self._running:
             return
+        self._record_core_recent_paths()
         cfg = self._build_cfg()
         # 严格校验：阻止非法配置导出，并给出提示（包含自动导表场景）
         ok, msg = self._strict_validate_for_export(cfg)
@@ -495,7 +659,8 @@ class MainWindow:
         except Exception:
             pass
         self._running = True
-        self.btn_run.config(state='disabled')
+        self._set_running_ui(True)
+        self.summary_text.set('状态：准备导出…')
         self._start_export_thread(cfg)
 
     def _autorun_if_enabled(self):
@@ -546,7 +711,7 @@ class MainWindow:
             finally:
                 def done():
                     self._running = False
-                    self.btn_run.config(state='normal')
+                    self._set_running_ui(False)
                     try:
                         if code == 0:
                             messagebox.showinfo('完成', '导表成功')
