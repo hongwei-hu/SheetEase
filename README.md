@@ -1,6 +1,6 @@
 # SheetEase
 
-轻量级、零依赖、可扩展的 Excel → JSON + C# 导出工具，专为游戏等需要高效配置管理的场景设计。
+轻量级、依赖极少、可扩展的 Excel → JSON + C# 导出工具，专为游戏等需要高效配置管理的场景设计。
 
 > **对比 luban**：本工具更轻量、无平台/框架依赖、易于二次开发，适合小中型项目和 Unity 工程。支持自定义类型、引用校验、GUI 批量导出，开箱即用。
 
@@ -13,7 +13,7 @@
 - **高效集成**：C# 端自动生成访问类，O(1) 查询，支持多种查询方式。
 - **自定义类型**：支持“通用回退”与“专用解析器”两种模式，灵活适配业务。
 - **易用 GUI**：可视化路径选择、配置保存、实时日志，适合策划/程序协作。
-- **零依赖**：仅需 Python 3.x，无需第三方库，易于集成到现有项目。
+- **依赖极少**：仅需 Python 3.x 与 `openpyxl`，易于集成到现有项目。
 
 ---
 
@@ -30,7 +30,11 @@ ProjectFolder/          # C# 工程与导出示例
 ## 快速上手
 
 1. **环境准备**  
-  安装 Python 3.x（建议 3.10+），并配置 `ExcelFolder/!【导表】.bat`（Excel 目录、工具目录、输出目录）。
+  安装 Python 3.x（建议 3.10+）与 `openpyxl`，并配置 `ExcelFolder/!【导表】.bat`（Excel 目录、工具目录、输出目录）。
+
+   ```powershell
+   pip install openpyxl
+   ```
 
 1. **Excel 规范**  
   文件名建议大写（便于过滤），Sheet 名需符合 C# 类命名规范；表头依次为：第1行字段名，第2行类型（基础/自定义），第3行注释（可选）。
@@ -97,7 +101,7 @@ ProjectFolder/          # C# 工程与导出示例
 - **Q: 支持数组/字典嵌套自定义类型吗？**
   - 支持，list/dict 可嵌套，复杂场景可扩展解析器。
 - **Q: 与 luban 有何区别？**
-  - luban 功能更全、支持多语言/格式，适合大型项目；本工具更轻量、易用、零依赖，适合快速集成和定制。
+  - luban 功能更全、支持多语言/格式，适合大型项目；本工具更轻量、易用、依赖极少，适合快速集成和定制。
 
 ---
 
@@ -183,7 +187,7 @@ pip install pyinstaller
 
 ## Overview
 
-A lightweight, dependency-free, and extensible Excel → JSON + C# exporter, designed for efficient config management in games and similar projects.
+A lightweight, low-dependency, and extensible Excel → JSON + C# exporter, designed for efficient config management in games and similar projects.
 
 > **Compared to luban**: This tool is lighter, has no platform/framework dependencies, and is easy to extend. It is ideal for small/medium projects and Unity. Supports custom types, reference checks, and GUI batch export out of the box.
 
@@ -196,7 +200,7 @@ A lightweight, dependency-free, and extensible Excel → JSON + C# exporter, des
 - **Efficient integration**: Auto-generated C# accessors, O(1) queries, multiple query helpers.
 - **Custom types**: Supports both generic fallback and dedicated parser modes.
 - **User-friendly GUI**: Visual path selection, config saving, real-time logs.
-- **Zero dependencies**: Only needs Python 3.x, no third-party libraries.
+- **Minimal dependencies**: Requires Python 3.x and `openpyxl` only.
 
 ---
 
@@ -213,7 +217,11 @@ ProjectFolder/          # C# project and export samples
 ## Quick Start
 
 1. **Requirements**  
-  Python 3.x (3.10+ recommended). Edit `ExcelFolder/!【导表】.bat` to set Excel, tool, and output directories.
+  Python 3.x (3.10+ recommended) and `openpyxl`. Edit `ExcelFolder/!【导表】.bat` to set Excel, tool, and output directories.
+
+   ```powershell
+   pip install openpyxl
+   ```
 
 1. **Excel Convention**  
   File name: UPPERCASE recommended; sheet name should follow C# class naming. Header: row 1 field names, row 2 types (basic/custom), row 3 comments (optional).
@@ -253,7 +261,7 @@ ProjectFolder/          # C# project and export samples
 - **Q: Are arrays/dicts of custom types supported?**
   - Yes, list/dict can nest custom types; extend parser for complex cases.
 - **Q: How is this different from luban?**
-  - luban is more feature-rich and supports more formats/languages for large projects; this tool is lighter, easier, and dependency-free for quick integration and customization.
+  - luban is more feature-rich and supports more formats/languages for large projects; this tool is lighter, easier, and low-dependency for quick integration and customization.
 
 ---
 

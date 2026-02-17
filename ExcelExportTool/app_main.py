@@ -55,6 +55,11 @@ if str(APP_DIR) not in sys.path:
 if str(APP_DIR / 'ExcelExportTool') not in sys.path:
     sys.path.insert(0, str(APP_DIR / 'ExcelExportTool'))
 
+try:
+    from ExcelExportTool.utils.config_io import get_config_file, load_initial_config, save_config  # type: ignore
+except Exception:
+    from utils.config_io import get_config_file, load_initial_config, save_config  # type: ignore
+
 
 def _import_batch_excel_to_json():
     """稳健导入 batch_excel_to_json，兼容打包与源码运行。"""
@@ -99,7 +104,7 @@ def _import_batch_excel_to_json():
                     spec.loader.exec_module(mod)  # type: ignore[attr-defined]
                     return getattr(mod, 'batch_excel_to_json')
                 raise ImportError('Failed to load export_process module spec')
-CONFIG_FILE = APP_DIR / 'sheet_config.json'
+CONFIG_FILE = get_config_file(APP_DIR)
 
 
 def _is_writable_dir(p: str) -> bool:
@@ -270,6 +275,19 @@ class MainWindow:
         except Exception:
             pass
 
+    def _build_cfg(self) -> dict:
+        return {
+            'excel_root': self.vars['excel_root'].get().strip(),
+            'output_project': self.vars['output_project'].get().strip(),
+            'cs_output': self.vars['cs_output'].get().strip(),
+            'enum_output': self.vars['enum_output'].get().strip(),
+            'auto_run': bool(self.vars['auto_run'].get()),
+            'yooasset': {
+                'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
+                'strict': bool(self.vars['yooasset.strict'].get()),
+            }
+        }
+
     def _add_row(self, row: int, label: str, key: str):
         tk.Label(self.master, text=label).grid(row=row, column=0, sticky='w', padx=6, pady=6)
         e = tk.Entry(self.master, textvariable=self.vars[key])
@@ -423,23 +441,13 @@ class MainWindow:
         return True, ''
 
     def on_save(self):
-        cfg = {
-            'excel_root': self.vars['excel_root'].get().strip(),
-            'output_project': self.vars['output_project'].get().strip(),
-            'cs_output': self.vars['cs_output'].get().strip(),
-            'enum_output': self.vars['enum_output'].get().strip(),
-            'auto_run': bool(self.vars['auto_run'].get()),
-            'yooasset': {
-                'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
-                'strict': bool(self.vars['yooasset.strict'].get()),
-            }
-        }
+        cfg = self._build_cfg()
         ok, msg = validate_config(cfg)
         if not ok:
             messagebox.showerror('配置无效', msg)
             return
         try:
-            CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+            save_config(CONFIG_FILE, cfg)
             messagebox.showinfo('完成', f'已保存配置到 {CONFIG_FILE}')
         except Exception as e:
             messagebox.showerror('保存失败', str(e))
@@ -455,22 +463,10 @@ class MainWindow:
         try:
             # 仅在启用自动运行时执行自动保存
             if 'auto_run' in self.vars and bool(self.vars['auto_run'].get()):
-                cfg = {
-                    'excel_root': self.vars['excel_root'].get().strip(),
-                    'output_project': self.vars['output_project'].get().strip(),
-                    'cs_output': self.vars['cs_output'].get().strip(),
-                    'enum_output': self.vars['enum_output'].get().strip(),
-                    'auto_run': bool(self.vars['auto_run'].get()),
-                    'yooasset': {
-                        'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
-                        'strict': bool(self.vars['yooasset.strict'].get()),
-                    }
-                }
+                cfg = self._build_cfg()
                 # 关闭时的保存不强校验，静默失败即可
                 try:
-                    CONFIG_FILE.write_text(
-                        json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8'
-                    )
+                    save_config(CONFIG_FILE, cfg, silent=True)
                 except Exception:
                     pass
         finally:
@@ -482,17 +478,7 @@ class MainWindow:
     def on_run(self):
         if self._running:
             return
-        cfg = {
-            'excel_root': self.vars['excel_root'].get().strip(),
-            'output_project': self.vars['output_project'].get().strip(),
-            'cs_output': self.vars['cs_output'].get().strip(),
-            'enum_output': self.vars['enum_output'].get().strip(),
-            'auto_run': bool(self.vars['auto_run'].get()),
-            'yooasset': {
-                'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
-                'strict': bool(self.vars['yooasset.strict'].get()),
-            }
-        }
+        cfg = self._build_cfg()
         # 严格校验：阻止非法配置导出，并给出提示（包含自动导表场景）
         ok, msg = self._strict_validate_for_export(cfg)
         if not ok:
@@ -505,7 +491,7 @@ class MainWindow:
             return
         # persist cfg
         try:
-            CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+            save_config(CONFIG_FILE, cfg, silent=True)
         except Exception:
             pass
         self._running = True
@@ -522,6 +508,7 @@ class MainWindow:
     def _start_export_thread(self, cfg: dict):
         def target():
             code = 1
+            err_message = ''
             try:
                 # GUI 模式 -> 弹窗确认
                 os.environ['SHEETEASE_GUI'] = '1'
@@ -554,10 +541,7 @@ class MainWindow:
             except SystemExit as se:
                 code = int(getattr(se, 'code', 1) or 0)
             except Exception as e:
-                try:
-                    messagebox.showerror('导表失败', str(e))
-                except Exception:
-                    pass
+                err_message = str(e)
                 code = 1
             finally:
                 def done():
@@ -567,7 +551,7 @@ class MainWindow:
                         if code == 0:
                             messagebox.showinfo('完成', '导表成功')
                         else:
-                            messagebox.showerror('失败', '导表失败，详见日志')
+                            messagebox.showerror('失败', err_message or '导表失败，详见日志')
                     except Exception:
                         pass
                 self.master.after(0, done)
@@ -593,33 +577,7 @@ def run_export_with_cfg(cfg: dict) -> int:
 
 def main():
     # 读取或创建配置
-    cfg = None
-    if CONFIG_FILE.exists():
-        try:
-            cfg = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
-        except Exception:
-            cfg = None
-    if not cfg:
-        # 尝试从旧的批处理文件填充默认值
-        try:
-            bat_path = APP_DIR / 'ExcelFolder' / '!【导表】.bat'
-            if bat_path.exists():
-                text = bat_path.read_text(encoding='gbk', errors='ignore')
-                def _extract(key: str) -> str | None:
-                    import re
-                    m = re.search(rf"^set\s+{key}=([^\r\n]+)", text, flags=re.IGNORECASE | re.MULTILINE)
-                    return m.group(1).strip() if m else None
-                draft = {
-                    'excel_root': _extract('input_folder') or '',
-                    'output_project': _extract('output_project_folder') or '',
-                    'cs_output': _extract('csfile_output_folder') or '',
-                    'enum_output': _extract('enum_output_folder') or '',
-                }
-                # 仅在有至少一个字段时作为初始值
-                if any(draft.values()):
-                    cfg = draft
-        except Exception:
-            pass
+    cfg = load_initial_config(APP_DIR, CONFIG_FILE)
     # 启动统一 GUI（带配置与日志区域）
     root = tk.Tk()
     # 若 cfg 不合法或为空，也仅作为初值展示在窗口内，让用户修正

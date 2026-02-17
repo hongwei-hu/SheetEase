@@ -3,8 +3,7 @@
 import time
 import openpyxl
 from pathlib import Path
-from typing import Optional
-import sys
+from typing import Optional, Tuple
 import os
 import shutil
 import traceback
@@ -27,6 +26,7 @@ def process_excel_file(
     output_project_folder: Optional[str],
     csfile_output_folder: Optional[str],
     enum_output_folder: Optional[str],
+    workbook=None,
 ) -> Optional[WorksheetData]:
     """
     处理单个Excel文件，生成JSON和C#代码。
@@ -46,11 +46,15 @@ def process_excel_file(
         SheetNameConflictError: Sheet名冲突
         ExportError: 导出错误
     """
-    try:
-        wb = openpyxl.load_workbook(str(excel_path), data_only=True)
-    except Exception as e:
-        log_error(f"打开失败: {green_filename(excel_path.name)} -> {e}")
-        return None
+    wb = workbook
+    opened_here = False
+    if wb is None:
+        try:
+            wb = openpyxl.load_workbook(str(excel_path), data_only=True)
+            opened_here = True
+        except Exception as e:
+            log_error(f"打开失败: {green_filename(excel_path.name)} -> {e}")
+            return None
     main_sheet = wb.worksheets[0]
     if main_sheet.title in file_sheet_map.values():
         dup = next(f for f, s in file_sheet_map.items() if s == main_sheet.title)
@@ -75,6 +79,11 @@ def process_excel_file(
 
     file_sheet_map[excel_path.name] = main_sheet.title
     log_info(f"完成 {excel_path.name} \n")
+    if opened_here:
+        try:
+            wb.close()
+        except Exception:
+            pass
     return main_sheet_data
 
 def cleanup_files(output_folders: list[Optional[str]]) -> None:
@@ -186,6 +195,7 @@ def batch_excel_to_json(
     # 反查 map: sheet 名 -> excel 文件名（用于日志显示目标 Excel 文件）
     sheet_to_file_map: dict[str, str] = {}
     excel_files = list(Path(source_folder).rglob("*.xlsx"))
+    workbook_cache: dict[Path, object] = {}
 
     if not excel_files:
         log_warn("未找到 .xlsx 文件")
@@ -207,6 +217,7 @@ def batch_excel_to_json(
         except Exception as e:
             log_error(f"打开失败（枚举收集阶段）: {green_filename(excel_path.name)} -> {e}")
             continue
+        workbook_cache[excel_path] = wb
         
         main_sheet = wb.worksheets[0]
         
@@ -318,7 +329,7 @@ def batch_excel_to_json(
         except Exception as e:
             log_warn(f"收集枚举时出错（方式2）{excel_path.name}: {e}")
         
-        wb.close()
+        # workbook 延迟到第二阶段后统一关闭，避免重复加载
     
     # 导出所有枚举文件
     if enum_output_folder and enum_files_to_export:
@@ -348,33 +359,42 @@ def batch_excel_to_json(
     log_sep("第二阶段：处理表格数据")
     sheets: list[WorksheetData] = []
     aborted = False
-    for excel_path in excel_files:
-        if not excel_path.name[0].isupper():
-            log_warn(f"跳过(首字母非大写): {green_filename(excel_path.name)}")
-            skip += 1
-            continue
-        try:
-            ws = process_excel_file(
-                excel_path,
-                file_sheet_map,
-                output_client_folder,
-                output_project_folder,
-                csfile_output_folder,
-                enum_output_folder,
-            )
-            if ws is not None:
-                sheets.append(ws)
-                # 记录 sheet -> 文件名
-                try:
-                    sheet_to_file_map[ws.name] = excel_path.name
-                except Exception:
-                    pass
-            ok += 1
-        except Exception as e:
-            # 所有异常视为致命：打印红色错误、堆栈信息，并给出建议后立即退出
-            tb = traceback.format_exc()
-            log_error(f"{excel_path.name} 失败: {e}\n{tb}")
-            sys.exit(1)
+    try:
+        for excel_path in excel_files:
+            if not excel_path.name[0].isupper():
+                log_warn(f"跳过(首字母非大写): {green_filename(excel_path.name)}")
+                skip += 1
+                continue
+            try:
+                ws = process_excel_file(
+                    excel_path,
+                    file_sheet_map,
+                    output_client_folder,
+                    output_project_folder,
+                    csfile_output_folder,
+                    enum_output_folder,
+                    workbook=workbook_cache.get(excel_path),
+                )
+                if ws is not None:
+                    sheets.append(ws)
+                    # 记录 sheet -> 文件名
+                    try:
+                        sheet_to_file_map[ws.name] = excel_path.name
+                    except Exception:
+                        pass
+                ok += 1
+            except Exception as e:
+                # 所有异常视为致命：打印红色错误、堆栈信息，并抛出给上层处理
+                tb = traceback.format_exc()
+                log_error(f"{excel_path.name} 失败: {e}\n{tb}")
+                raise ExportError(f"{excel_path.name} 处理失败: {e}") from e
+    finally:
+        # 第二阶段结束后关闭缓存的 workbook
+        for wb in workbook_cache.values():
+            try:
+                wb.close()
+            except Exception:
+                pass
 
     # 统一引用检查（导出后）
     if sheets and not aborted:
