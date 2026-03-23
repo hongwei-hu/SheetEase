@@ -221,7 +221,8 @@ class MainWindow:
     def __init__(self, master, init_cfg: dict | None = None):
         self.master = master
         master.title('SheetEase - 导表工具')
-        master.minsize(980, 620)
+        master.geometry('600x400')
+        master.minsize(400, 250)
 
         # Config vars (支持 StringVar 和 BooleanVar)
         self.vars: dict[str, tk.Variable] = {
@@ -254,8 +255,7 @@ class MainWindow:
         # 核心操作区：突出开始导出，右侧放常用勾选项
         header = tk.Frame(master, padx=12, pady=10)
         header.grid(row=0, column=0, sticky='we')
-        header.grid_columnconfigure(0, weight=1)
-        header.grid_columnconfigure(3, weight=1)
+        header.grid_columnconfigure(2, weight=1)
 
         self.vars['auto_run'] = tk.BooleanVar(value=bool((init_cfg or {}).get('auto_run', False)))
         self.btn_run = tk.Button(
@@ -270,7 +270,7 @@ class MainWindow:
             pady=12,
             font=('Segoe UI', 13, 'bold'),
         )
-        self.btn_run.grid(row=0, column=1, rowspan=2, padx=(0, 18))
+        self.btn_run.grid(row=0, column=0, rowspan=2, padx=(0, 18), sticky='w')
         # 常驻高级选项：保留资产严格校验模式，不折叠
         self._advanced_visible = False
         yoo = (init_cfg or {}).get('yooasset', {}) if isinstance((init_cfg or {}).get('yooasset', {}), dict) else {}
@@ -278,7 +278,7 @@ class MainWindow:
         self.vars['yooasset.strict'] = tk.BooleanVar(value=bool(yoo.get('strict', False)))
 
         option_frame = tk.Frame(header)
-        option_frame.grid(row=0, column=2, rowspan=2, sticky='w')
+        option_frame.grid(row=0, column=1, rowspan=2, sticky='w')
         self.chk_auto = tk.Checkbutton(option_frame, text='打开时自动导表', variable=self.vars['auto_run'])
         self.chk_auto.grid(row=0, column=0, sticky='w')
         self.chk_strict = tk.Checkbutton(option_frame, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict'])
@@ -314,7 +314,7 @@ class MainWindow:
         self.log = scrolledtext.ScrolledText(
             master,
             wrap='word',
-            height=18,
+            height=14,
             bg='#111111',
             fg='#f5f5f5',
             insertbackground='#f5f5f5',
@@ -421,6 +421,10 @@ class MainWindow:
         def _on_close():
             self._settings_window = None
             self._settings_notebook = None
+            # 配置弹窗关闭后清理控件引用，避免后续访问已销毁的 Tk 组件。
+            self.path_inputs.clear()
+            self.path_status_labels.clear()
+            self.count_labels.clear()
             win.destroy()
 
         win.protocol('WM_DELETE_WINDOW', _on_close)
@@ -611,7 +615,13 @@ class MainWindow:
         self._recent_paths[key] = [value] + items[:7]
         cb = self.path_inputs.get(key)
         if cb:
-            cb.configure(values=self._recent_paths.get(key, []))
+            try:
+                if cb.winfo_exists():
+                    cb.configure(values=self._recent_paths.get(key, []))
+                else:
+                    self.path_inputs.pop(key, None)
+            except tk.TclError:
+                self.path_inputs.pop(key, None)
 
     def _status_for(self, key: str, path: str, detail_color: str) -> tuple[str, str]:
         if not path:
