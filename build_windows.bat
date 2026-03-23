@@ -30,11 +30,14 @@ REM Optionally include ProjectFolder as runtime data (for interface/type checks)
 set DATA_FLAGS=--add-data "ProjectFolder;ProjectFolder" ^
   --add-data "ExcelExportTool;ExcelExportTool"
 
-if "%1"=="--onefile" (
-  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --onefile --name %NAME% "%ENTRY%"
-) else (
+if /I "%1"=="--dir" (
+  echo Building mode: dir
   pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --name %NAME% "%ENTRY%"
+) else (
+  echo Building mode: onefile (default)
+  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --onefile --name %NAME% "%ENTRY%"
 )
 
 echo Build finished. Check the dist folder.
+echo Usage: build_windows.bat [--dir]
 endlocal
