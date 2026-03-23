@@ -181,7 +181,7 @@ def generate_info_class(class_name, properties_dict, property_remarks):
             f"public {convert_type_to_csharp(v)} {k} {property_access_decorator}"
         )
     if "id" not in properties_dict:
-        log_warn(f"{class_name}Info 缺少 id，已自动补齐")
+        log_info(f"{class_name}Info 缺少 id，已自动补齐")
         append(
             f"{generate_xml_summary('Auto-added to satisfy IConfigRawInfo')}\n"
             "[JsonProperty(\"id\")]\npublic int id { get; private set; }"
