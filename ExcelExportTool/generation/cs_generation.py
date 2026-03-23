@@ -168,7 +168,7 @@ def generate_script_file(sheet_name: str,
 def generate_info_class(class_name, properties_dict, property_remarks):
     """
     生成 Info 类：
-    - 自动补齐 id / name
+    - 自动补齐 id
     - 输出顺序保持原逻辑（字段插入顺序 -> dict 顺序）
     """
     property_access_decorator = "{ get; private set; }"
@@ -185,12 +185,6 @@ def generate_info_class(class_name, properties_dict, property_remarks):
         append(
             f"{generate_xml_summary('Auto-added to satisfy IConfigRawInfo')}\n"
             "[JsonProperty(\"id\")]\npublic int id { get; private set; }"
-        )
-    if "name" not in properties_dict:
-        log_warn(f"{class_name}Info 缺少 name，已自动补齐")
-        append(
-            f"{generate_xml_summary('Auto-added to satisfy IConfigRawInfo')}\n"
-            "[JsonProperty(\"name\")]\npublic string name { get; private set; }"
         )
     return wrap_class_str(class_name + "Info", "\n\n".join(converted), interface_name=I_CONFIG_RAW_INFO_NAME)
 

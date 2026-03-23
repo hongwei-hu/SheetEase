@@ -78,7 +78,7 @@ def check_interface_field_types(sheet_name: str, properties_dict: Dict[str, str]
                     interface_path = alt
         except Exception:
             pass
-    # 若接口文件缺失，仍然对 id/name 使用内置期望（id:int, name:string）
+    # 若接口文件缺失，仍然对 id 使用内置期望（id:int）
     interface_missing = not os.path.exists(interface_path)
     content = ''
     if not interface_missing:
@@ -88,19 +88,15 @@ def check_interface_field_types(sheet_name: str, properties_dict: Dict[str, str]
     pattern = re.compile(r"(int|string|float|double|bool)\s+(\w+)\s*{[^{]*?get;[^{]*?}")
     interface_fields = {m.group(2): m.group(1).lower() for m in pattern.finditer(content)} if content else {}
     if not interface_fields:
-        # 没有在接口中解析到属性时，不中断；对 id/name 仍做内置期望检查
+        # 没有在接口中解析到属性时，不中断；对 id 仍做内置期望检查
         pass
     props = properties_dict
-    # 1) 对 id/name 执行强制一致性检查（必须与接口或内置期望一致），不通过则直接中断
+    # 1) 对 id 执行强制一致性检查（必须与接口或内置期望一致），不通过则直接中断
     expected_id = (interface_fields.get('id') or 'int').lower()
-    expected_name = (interface_fields.get('name') or 'string').lower()
     hard_errors: list[str] = []
     actual_id = props.get('id')
     if actual_id is not None and actual_id.lower() != expected_id:
         hard_errors.append(f"id 字段类型为 {actual_id}，必须为 {expected_id}，因为id属性必须跟接口一致。如果要保留类型{actual_id}，建议修改字段名")
-    actual_name = props.get('name')
-    if actual_name is not None and actual_name.lower() != expected_name:
-        hard_errors.append(f"name 字段类型为 {actual_name}，必须为 {expected_name}，因为name属性必须跟接口一致。如果要保留类型{actual_name}，建议修改字段名")
     if hard_errors:
         detail = "\n".join(f"  - {x}" for x in hard_errors)
         raise RuntimeError(f"表[{sheet_name}] 字段类型错误：\n{detail}")
@@ -108,7 +104,7 @@ def check_interface_field_types(sheet_name: str, properties_dict: Dict[str, str]
     # 2) 其他接口字段保持原有"提示并确认"的流程
     wrongs = []
     for fname, ftype in interface_fields.items():
-        if fname in ('id', 'name'):
+        if fname == 'id':
             continue  # 已做强制检查
         actual_type = props.get(fname)
         if actual_type is not None and actual_type.lower() != ftype:

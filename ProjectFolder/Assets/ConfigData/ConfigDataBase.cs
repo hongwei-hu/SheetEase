@@ -65,8 +65,21 @@ namespace Data
                 throw new InvalidOperationException($"{_name} 数据未加载");
             }
 
-            // 以id为key，以id-name为value
-            return _data.ToDictionary(kv => kv.Key, kv => $"{kv.Key} - {kv.Value.name}");
+            // name 字段是可选的：存在则显示 "id - name"，否则仅显示 id。
+            var nameProperty = typeof(T).GetProperty("name");
+            return _data.ToDictionary(kv => kv.Key, kv =>
+            {
+                if (nameProperty != null)
+                {
+                    var raw = nameProperty.GetValue(kv.Value)?.ToString();
+                    if (!string.IsNullOrEmpty(raw))
+                    {
+                        return $"{kv.Key} - {raw}";
+                    }
+                }
+
+                return kv.Key.ToString();
+            });
         }
 
         // --- 以下为 IConfigDataBase 的显式实现（用于非泛型访问） ---
