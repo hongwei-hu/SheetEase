@@ -46,10 +46,6 @@ namespace Data.TableScript
 		/// <summary> Auto-added to satisfy IConfigRawInfo </summary>
 		[JsonProperty("id")]
 		public int id { get; private set; }
-		
-		/// <summary> Auto-added to satisfy IConfigRawInfo </summary>
-		[JsonProperty("name")]
-		public string name { get; private set; }
 	}
 	
 	/// <summary>

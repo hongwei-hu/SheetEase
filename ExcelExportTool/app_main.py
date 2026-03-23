@@ -10,6 +10,7 @@ SheetEase 独立启动入口：
 import json
 import os
 import sys
+import time
 from pathlib import Path
 import threading
 import tkinter as tk
@@ -234,6 +235,9 @@ class MainWindow:
         self._settings_window: tk.Toplevel | None = None
         self._settings_notebook: ttk.Notebook | None = None
         self._tooltip: tk.Toplevel | None = None
+        ui_cfg = (init_cfg or {}).get('ui', {}) if isinstance((init_cfg or {}).get('ui', {}), dict) else {}
+        self._last_export_time: str = str(ui_cfg.get('last_export_time', '') or '')
+        self._last_export_elapsed: str = str(ui_cfg.get('last_export_elapsed', '') or '')
 
         # Layout root
         master.grid_rowconfigure(5, weight=1)
@@ -276,6 +280,8 @@ class MainWindow:
         self.chk_strict.pack(side='left')
         self.btn_strict_info = tk.Label(self.strict_frame, text='(i)', fg='#2b6cb0', cursor='hand2')
         self.btn_strict_info.pack(side='left', padx=(6, 0))
+        self.btn_strict_example = tk.Button(self.strict_frame, text='查看示例', relief='flat', fg='#2b6cb0', command=self._show_strict_examples)
+        self.btn_strict_example.pack(side='left', padx=(10, 0))
         self.btn_strict_info.bind('<Enter>', lambda _e: self._show_strict_tooltip())
         self.btn_strict_info.bind('<Leave>', lambda _e: self._hide_strict_tooltip())
 
@@ -297,6 +303,9 @@ class MainWindow:
         self.summary_frame.grid(row=3, column=0, sticky='we', pady=(0, 4))
         self.summary_text = tk.StringVar(value='状态：待运行')
         tk.Label(self.summary_frame, textvariable=self.summary_text, fg='#555555').pack(side='left')
+        self.snapshot_text = tk.StringVar(value='')
+        tk.Label(self.summary_frame, text='  |  ', fg='#999999').pack(side='left')
+        tk.Label(self.summary_frame, textvariable=self.snapshot_text, fg='#666666').pack(side='left')
 
         # 日志工具栏 + 日志区
         log_toolbar = tk.Frame(master, padx=12)
@@ -329,6 +338,8 @@ class MainWindow:
             self._refresh_counts()
         except Exception:
             pass
+        self._refresh_snapshot()
+        self._bind_snapshot_traces()
 
     def _build_menu(self):
         menubar = tk.Menu(self.master)
@@ -379,8 +390,14 @@ class MainWindow:
 
         btns = tk.Frame(win)
         btns.grid(row=1, column=0, sticky='e', padx=12, pady=(0, 12))
+        tk.Button(btns, text='测试路径可用性', command=self._run_path_health_check).pack(side='left', padx=(0, 6))
         tk.Button(btns, text='保存配置', command=self.on_save).pack(side='left', padx=(0, 6))
         tk.Button(btns, text='关闭', command=win.destroy).pack(side='left')
+
+        status_bar = tk.Frame(win)
+        status_bar.grid(row=2, column=0, sticky='we', padx=12, pady=(0, 12))
+        self.settings_status_text = tk.StringVar(value=self._settings_status_text())
+        tk.Label(status_bar, textvariable=self.settings_status_text, fg='#666666').pack(side='left')
 
         def _on_close():
             self._settings_window = None
@@ -422,6 +439,23 @@ class MainWindow:
                  relief='solid', bd=1, padx=8, pady=6).pack()
         self._tooltip = tip
 
+    def _show_strict_examples(self):
+        msg = (
+            '常见 [Asset] 标注示例：\n'
+            '1) [Asset]icon_name\n'
+            '2) [Asset:prefab]hero_prefab\n'
+            '3) list(string) + [Asset:sprite]icon_list\n\n'
+            'CollectorSetting 路径建议：\n'
+            '- Unity项目/Assets/.../CollectorSetting.asset\n'
+            '- 在「设置 -> YooAsset 收集设置」中选择该 asset 文件\n\n'
+            '严格模式开启：任一资源未找到即中断导出。\n'
+            '严格模式关闭：记录警告并继续导出。'
+        )
+        try:
+            messagebox.showinfo('严格校验示例', msg)
+        except Exception:
+            pass
+
     def _hide_strict_tooltip(self):
         if self._tooltip:
             try:
@@ -441,12 +475,92 @@ class MainWindow:
             'ui': {
                 'show_advanced': bool(self._advanced_visible),
                 'show_key_logs': bool(self.vars['show_key_logs'].get()),
+                'last_export_time': self._last_export_time,
+                'last_export_elapsed': self._last_export_elapsed,
             },
             'yooasset': {
                 'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
                 'strict': bool(self.vars['yooasset.strict'].get()),
             }
         }
+
+    def _settings_status_text(self) -> str:
+        t = self._last_export_time or '从未成功导出'
+        e = self._last_export_elapsed or '-'
+        return f'上次成功导出：{t}    上次耗时：{e}'
+
+    def _bind_snapshot_traces(self):
+        keys = ['excel_root', 'output_project', 'cs_output', 'enum_output', 'yooasset.strict']
+        for k in keys:
+            try:
+                self.vars[k].trace_add('write', lambda *_args: self._refresh_snapshot())
+            except Exception:
+                pass
+
+    def _refresh_snapshot(self):
+        def _name_of(key: str) -> str:
+            raw = str(self.vars[key].get() or '').strip()
+            if not raw:
+                return '未配置'
+            return Path(raw).name or raw
+
+        strict_mode = '开' if bool(self.vars['yooasset.strict'].get()) else '关'
+        text = (
+            f"配置快照：Excel[{_name_of('excel_root')}] 输出[{_name_of('output_project')}] "
+            f"脚本[{_name_of('cs_output')}] 枚举[{_name_of('enum_output')}] 严格[{strict_mode}]"
+        )
+        self.snapshot_text.set(text)
+
+    def _run_path_health_check(self):
+        cfg = self._build_cfg()
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        ok, msg = validate_config(cfg)
+        if not ok:
+            errors.append(msg)
+
+        excel_root = Path(cfg.get('excel_root', '')) if cfg.get('excel_root') else None
+        if not excel_root or not excel_root.is_dir():
+            errors.append('Excel 根目录不存在或不可访问')
+        else:
+            count = self._safe_count(
+                f for f in excel_root.rglob('*.xlsx')
+                if f.name and f.name[0].isupper() and not f.name.startswith('~$')
+            )
+            if count <= 0:
+                warnings.append('Excel 目录中没有符合导出规则的 .xlsx 文件')
+
+        cs_output = cfg.get('cs_output', '')
+        enum_output = cfg.get('enum_output', '')
+        if not self._is_under_assets(cs_output):
+            warnings.append('C# 输出目录不在 Unity Assets 子目录')
+        if not self._is_under_assets(enum_output):
+            warnings.append('枚举输出目录不在 Unity Assets 子目录')
+
+        collector = cfg.get('yooasset', {}).get('collector_setting', '') if isinstance(cfg.get('yooasset', {}), dict) else ''
+        if collector:
+            cp = Path(collector)
+            if not cp.exists():
+                errors.append('YooAsset CollectorSetting 路径不存在')
+            elif cp.suffix.lower() != '.asset':
+                warnings.append('YooAsset CollectorSetting 不是 .asset 文件')
+            else:
+                try:
+                    with open(cp, 'rb') as _fp:
+                        _fp.read(1)
+                except Exception:
+                    errors.append('YooAsset CollectorSetting 文件不可读')
+        else:
+            warnings.append('未配置 YooAsset CollectorSetting（将跳过资产校验）')
+
+        if errors:
+            details = '\n'.join([f'- {x}' for x in errors] + [f'- {x}' for x in warnings])
+            messagebox.showerror('路径健康检查失败', details)
+            return
+
+        details = '\n'.join([f'- {x}' for x in warnings]) if warnings else '所有路径检查通过。'
+        messagebox.showinfo('路径健康检查', details)
 
     def _toggle_advanced(self):
         # 兼容旧配置字段，当前版本不再提供折叠高级区。
@@ -681,6 +795,7 @@ class MainWindow:
                 self.btn_clear.configure(state='disabled')
                 self.chk_auto.configure(state='disabled')
                 self.chk_strict.configure(state='disabled')
+                self.btn_strict_example.configure(state='disabled')
             else:
                 self.btn_run.configure(text='开始导出', state='normal')
                 self.btn_settings.configure(state='normal')
@@ -688,6 +803,7 @@ class MainWindow:
                 self.btn_clear.configure(state='normal')
                 self.chk_auto.configure(state='normal')
                 self.chk_strict.configure(state='normal')
+                self.btn_strict_example.configure(state='normal')
         except Exception:
             pass
 
@@ -700,6 +816,8 @@ class MainWindow:
             return
         try:
             save_config(CONFIG_FILE, cfg)
+            if hasattr(self, 'settings_status_text') and self.settings_status_text is not None:
+                self.settings_status_text.set(self._settings_status_text())
             messagebox.showinfo('完成', f'已保存配置到 {CONFIG_FILE}')
         except Exception as e:
             messagebox.showerror('保存失败', str(e))
@@ -764,6 +882,7 @@ class MainWindow:
         def target():
             code = 1
             err_message = ''
+            elapsed_sec = 0.0
             try:
                 # GUI 模式 -> 弹窗确认
                 os.environ['SHEETEASE_GUI'] = '1'
@@ -780,6 +899,7 @@ class MainWindow:
                 sys.stdout = self.logger  # type: ignore
                 sys.stderr = self.logger  # type: ignore
                 try:
+                    started = time.perf_counter()
                     bexport(
                         source_folder=cfg['excel_root'],
                         output_client_folder=None,
@@ -790,6 +910,7 @@ class MainWindow:
                         dry_run=False,
                         auto_cleanup=True,
                     )
+                    elapsed_sec = max(0.0, time.perf_counter() - started)
                     code = 0
                 finally:
                     sys.stdout, sys.stderr = old_stdout, old_stderr
@@ -804,6 +925,15 @@ class MainWindow:
                     self._set_running_ui(False)
                     try:
                         if code == 0:
+                            self._last_export_time = time.strftime('%Y-%m-%d %H:%M:%S')
+                            self._last_export_elapsed = f'{elapsed_sec:.2f}s'
+                            self._refresh_snapshot()
+                            if hasattr(self, 'settings_status_text') and self.settings_status_text is not None:
+                                self.settings_status_text.set(self._settings_status_text())
+                            try:
+                                save_config(CONFIG_FILE, self._build_cfg(), silent=True)
+                            except Exception:
+                                pass
                             messagebox.showinfo('完成', '导表成功')
                         else:
                             messagebox.showerror('失败', err_message or '导表失败，详见日志')
