@@ -482,6 +482,11 @@ class WorksheetData:
 
     def run_reference_checks(self, search_dirs: List[str], sheet_to_file_map: Optional[Dict[str, str]] = None) -> None:
         """执行引用检查"""
+        # source_file 在导出流程中是后设值，这里同步到检查器以便日志包含来源 Excel 文件名。
+        try:
+            self._reference_checker.source_file = getattr(self, "source_file", None)
+        except Exception:
+            pass
         self._reference_checker.run_checks(search_dirs, sheet_to_file_map)
 
     def generate_script(self, output_folder: str) -> None:

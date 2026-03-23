@@ -168,7 +168,7 @@ class ReferenceChecker:
         # 小助手：统一构建日志上下文（源/目标/标记）
         def _ctx_parts(ref_sheet: str, ref_real_field: str) -> Tuple[str, str, str]:
             src = self.source_file
-            src_disp = f"[{src}] " if src else ""
+            src_disp = f"[{src}] " if src else f"[{self.sheet_name}] "
             target_excel = None
             if sheet_to_file_map and ref_sheet in sheet_to_file_map:
                 target_excel = sheet_to_file_map.get(ref_sheet)
