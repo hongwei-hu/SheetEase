@@ -231,15 +231,21 @@ class MainWindow:
             'show_key_logs': tk.BooleanVar(value=bool((init_cfg or {}).get('ui', {}).get('show_key_logs', True)) if isinstance((init_cfg or {}).get('ui', {}), dict) else True),
         }
         self._recent_paths: dict[str, list[str]] = dict((init_cfg or {}).get('recent_paths', {})) if isinstance((init_cfg or {}).get('recent_paths', {}), dict) else {}
+        self._settings_window: tk.Toplevel | None = None
+        self._settings_notebook: ttk.Notebook | None = None
+        self._tooltip: tk.Toplevel | None = None
 
         # Layout root
-        master.grid_rowconfigure(6, weight=1)
+        master.grid_rowconfigure(5, weight=1)
         master.grid_columnconfigure(0, weight=1)
 
         # UI refs
         self.path_inputs: dict[str, ttk.Combobox] = {}
         self.path_status_labels: dict[str, tk.Label] = {}
         self.count_labels: dict[str, tk.Label] = {}
+
+        # 顶部菜单：基础配置与 YooAsset 收集设置放入菜单页签
+        self._build_menu()
 
         # Header: 高频操作突出
         header = tk.Frame(master, padx=12, pady=10)
@@ -258,65 +264,48 @@ class MainWindow:
             pady=6,
         )
         self.btn_run.grid(row=0, column=1, sticky='e')
-
-        # 基础配置区
-        self.config_frame = tk.LabelFrame(master, text='基础配置', padx=10, pady=8)
-        self.config_frame.grid(row=1, column=0, sticky='we', padx=12, pady=(0, 8))
-        self.config_frame.grid_columnconfigure(1, weight=1)
-
-        self._add_row(self.config_frame, 0, 'Excel 根目录', 'excel_root')
-        self._add_count_label(self.config_frame, 1, 'excel_root')
-        self._add_row(self.config_frame, 2, '工程 JSON 输出目录', 'output_project')
-        self._add_count_label(self.config_frame, 3, 'output_project')
-        self._add_row(self.config_frame, 4, 'C# 脚本输出目录', 'cs_output')
-        self._add_count_label(self.config_frame, 5, 'cs_output')
-        self._add_row(self.config_frame, 6, '枚举输出目录', 'enum_output')
-        self._add_count_label(self.config_frame, 7, 'enum_output')
-
-        # 高级设置折叠区
-        self._advanced_visible = bool((init_cfg or {}).get('ui', {}).get('show_advanced', False)) if isinstance((init_cfg or {}).get('ui', {}), dict) else False
-        self.btn_toggle_advanced = tk.Button(master, text='显示高级设置 ▾', command=self._toggle_advanced, relief='flat', fg='#444444')
-        self.btn_toggle_advanced.grid(row=2, column=0, sticky='w', padx=16, pady=(0, 6))
-
-        self.advanced_frame = tk.LabelFrame(master, text='高级设置', padx=10, pady=8)
-        self.advanced_frame.grid(row=3, column=0, sticky='we', padx=12, pady=(0, 8))
-        self.advanced_frame.grid_columnconfigure(1, weight=1)
-
+        # 常驻高级选项：保留资产严格校验模式，不折叠
+        self._advanced_visible = False
         yoo = (init_cfg or {}).get('yooasset', {}) if isinstance((init_cfg or {}).get('yooasset', {}), dict) else {}
         self.vars['yooasset.collector_setting'] = tk.StringVar(value=yoo.get('collector_setting', ''))
         self.vars['yooasset.strict'] = tk.BooleanVar(value=bool(yoo.get('strict', False)))
-        self._add_file_row(self.advanced_frame, 0, 'YooAsset CollectorSetting.asset', 'yooasset.collector_setting')
-        tk.Checkbutton(self.advanced_frame, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict']).grid(row=1, column=0, columnspan=4, sticky='w', pady=(2, 2))
 
-        if not self._advanced_visible:
-            self.advanced_frame.grid_remove()
-        self._refresh_advanced_toggle_text()
+        self.strict_frame = tk.Frame(master, padx=12)
+        self.strict_frame.grid(row=1, column=0, sticky='we', pady=(0, 6))
+        self.chk_strict = tk.Checkbutton(self.strict_frame, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict'])
+        self.chk_strict.pack(side='left')
+        self.btn_strict_info = tk.Label(self.strict_frame, text='(i)', fg='#2b6cb0', cursor='hand2')
+        self.btn_strict_info.pack(side='left', padx=(6, 0))
+        self.btn_strict_info.bind('<Enter>', lambda _e: self._show_strict_tooltip())
+        self.btn_strict_info.bind('<Leave>', lambda _e: self._hide_strict_tooltip())
 
         # 次操作区
         self.controls_frame = tk.Frame(master, padx=12)
-        self.controls_frame.grid(row=4, column=0, sticky='we', pady=(0, 6))
+        self.controls_frame.grid(row=2, column=0, sticky='we', pady=(0, 6))
         self.vars['auto_run'] = tk.BooleanVar(value=bool((init_cfg or {}).get('auto_run', False)))
+        self.btn_settings = tk.Button(self.controls_frame, text='配置', command=lambda: self._open_settings_dialog('basic'))
         self.btn_save = tk.Button(self.controls_frame, text='保存配置', command=self.on_save)
         self.btn_clear = tk.Button(self.controls_frame, text='清空日志', command=self.on_clear)
         self.chk_auto = tk.Checkbutton(self.controls_frame, text='打开时自动运行导表', variable=self.vars['auto_run'])
+        self.btn_settings.pack(side='left', padx=(0, 6))
         self.btn_save.pack(side='left', padx=(0, 6))
         self.btn_clear.pack(side='left', padx=(0, 10))
         self.chk_auto.pack(side='left')
 
         # 运行摘要
         self.summary_frame = tk.Frame(master, padx=12)
-        self.summary_frame.grid(row=5, column=0, sticky='we', pady=(0, 4))
+        self.summary_frame.grid(row=3, column=0, sticky='we', pady=(0, 4))
         self.summary_text = tk.StringVar(value='状态：待运行')
         tk.Label(self.summary_frame, textvariable=self.summary_text, fg='#555555').pack(side='left')
 
         # 日志工具栏 + 日志区
         log_toolbar = tk.Frame(master, padx=12)
-        log_toolbar.grid(row=6, column=0, sticky='we')
+        log_toolbar.grid(row=4, column=0, sticky='we')
         tk.Checkbutton(log_toolbar, text='仅显示关键日志', variable=self.vars['show_key_logs']).pack(side='left')
 
         self.log = scrolledtext.ScrolledText(master, wrap='word', height=18, bg='#111111', fg='#f5f5f5', insertbackground='#f5f5f5')
-        self.log.grid(row=7, column=0, sticky='nsew', padx=12, pady=(0, 10))
-        master.grid_rowconfigure(7, weight=1)
+        self.log.grid(row=5, column=0, sticky='nsew', padx=12, pady=(0, 10))
+        master.grid_rowconfigure(5, weight=1)
 
         # Configure ANSI color tags
         self.log.tag_config('ansi-normal', foreground='#f5f5f5')
@@ -341,6 +330,106 @@ class MainWindow:
         except Exception:
             pass
 
+    def _build_menu(self):
+        menubar = tk.Menu(self.master)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label='基础配置', command=lambda: self._open_settings_dialog('basic'))
+        settings_menu.add_command(label='YooAsset 收集设置', command=lambda: self._open_settings_dialog('yooasset'))
+        settings_menu.add_separator()
+        settings_menu.add_command(label='保存配置', command=self.on_save)
+        menubar.add_cascade(label='设置', menu=settings_menu)
+        self.master.config(menu=menubar)
+
+    def _open_settings_dialog(self, tab: str = 'basic'):
+        if self._settings_window and self._settings_window.winfo_exists():
+            self._settings_window.deiconify()
+            self._settings_window.lift()
+            self._select_settings_tab(tab)
+            return
+
+        win = tk.Toplevel(self.master)
+        win.title('配置')
+        win.transient(self.master)
+        win.geometry('980x520')
+        win.minsize(860, 460)
+        win.grid_rowconfigure(0, weight=1)
+        win.grid_columnconfigure(0, weight=1)
+
+        notebook = ttk.Notebook(win)
+        notebook.grid(row=0, column=0, sticky='nsew', padx=12, pady=12)
+        self._settings_notebook = notebook
+
+        basic_tab = tk.Frame(notebook)
+        basic_tab.grid_columnconfigure(1, weight=1)
+        notebook.add(basic_tab, text='基础配置')
+        self._add_row(basic_tab, 0, 'Excel 根目录', 'excel_root')
+        self._add_count_label(basic_tab, 1, 'excel_root')
+        self._add_row(basic_tab, 2, '工程 JSON 输出目录', 'output_project')
+        self._add_count_label(basic_tab, 3, 'output_project')
+        self._add_row(basic_tab, 4, 'C# 脚本输出目录', 'cs_output')
+        self._add_count_label(basic_tab, 5, 'cs_output')
+        self._add_row(basic_tab, 6, '枚举输出目录', 'enum_output')
+        self._add_count_label(basic_tab, 7, 'enum_output')
+
+        yoo_tab = tk.Frame(notebook)
+        yoo_tab.grid_columnconfigure(1, weight=1)
+        notebook.add(yoo_tab, text='YooAsset')
+        self._add_file_row(yoo_tab, 0, 'YooAsset CollectorSetting.asset', 'yooasset.collector_setting')
+        tk.Label(yoo_tab, text='提示：严格校验开关已移至主界面。', fg='#666666').grid(row=1, column=0, columnspan=4, sticky='w', pady=(4, 0))
+
+        btns = tk.Frame(win)
+        btns.grid(row=1, column=0, sticky='e', padx=12, pady=(0, 12))
+        tk.Button(btns, text='保存配置', command=self.on_save).pack(side='left', padx=(0, 6))
+        tk.Button(btns, text='关闭', command=win.destroy).pack(side='left')
+
+        def _on_close():
+            self._settings_window = None
+            self._settings_notebook = None
+            win.destroy()
+
+        win.protocol('WM_DELETE_WINDOW', _on_close)
+        self._settings_window = win
+        self._select_settings_tab(tab)
+        try:
+            self._refresh_counts()
+        except Exception:
+            pass
+
+    def _select_settings_tab(self, tab: str):
+        if not self._settings_notebook:
+            return
+        tabs = self._settings_notebook.tabs()
+        if not tabs:
+            return
+        index = 0 if tab == 'basic' else 1
+        if index < len(tabs):
+            self._settings_notebook.select(tabs[index])
+
+    def _show_strict_tooltip(self):
+        self._hide_strict_tooltip()
+        tip = tk.Toplevel(self.master)
+        tip.wm_overrideredirect(True)
+        x = self.btn_strict_info.winfo_rootx() + 16
+        y = self.btn_strict_info.winfo_rooty() + 20
+        tip.wm_geometry(f'+{x}+{y}')
+        msg = (
+            '严格模式：任一 [Asset] 字段校验失败将中断导出。\n'
+            '关闭严格模式：失败仅记录警告并继续导出。\n\n'
+            '收集设置路径请在「设置 -> YooAsset 收集设置」中配置：\n'
+            '通常指向 Unity 工程中的 CollectorSetting.asset 文件。'
+        )
+        tk.Label(tip, text=msg, justify='left', bg='#fffbe6', fg='#333333',
+                 relief='solid', bd=1, padx=8, pady=6).pack()
+        self._tooltip = tip
+
+    def _hide_strict_tooltip(self):
+        if self._tooltip:
+            try:
+                self._tooltip.destroy()
+            except Exception:
+                pass
+            self._tooltip = None
+
     def _build_cfg(self) -> dict:
         return {
             'excel_root': self.vars['excel_root'].get().strip(),
@@ -360,15 +449,12 @@ class MainWindow:
         }
 
     def _toggle_advanced(self):
-        self._advanced_visible = not self._advanced_visible
-        if self._advanced_visible:
-            self.advanced_frame.grid()
-        else:
-            self.advanced_frame.grid_remove()
-        self._refresh_advanced_toggle_text()
+        # 兼容旧配置字段，当前版本不再提供折叠高级区。
+        self._advanced_visible = False
 
     def _refresh_advanced_toggle_text(self):
-        self.btn_toggle_advanced.configure(text='隐藏高级设置 ▴' if self._advanced_visible else '显示高级设置 ▾')
+        # 兼容保留方法：当前布局不需要更新按钮文本。
+        return
 
     @staticmethod
     def _open_path(path: str):
@@ -590,14 +676,18 @@ class MainWindow:
         try:
             if running:
                 self.btn_run.configure(text='导出中…', state='disabled')
+                self.btn_settings.configure(state='disabled')
                 self.btn_save.configure(state='disabled')
                 self.btn_clear.configure(state='disabled')
                 self.chk_auto.configure(state='disabled')
+                self.chk_strict.configure(state='disabled')
             else:
                 self.btn_run.configure(text='开始导出', state='normal')
+                self.btn_settings.configure(state='normal')
                 self.btn_save.configure(state='normal')
                 self.btn_clear.configure(state='normal')
                 self.chk_auto.configure(state='normal')
+                self.chk_strict.configure(state='normal')
         except Exception:
             pass
 
