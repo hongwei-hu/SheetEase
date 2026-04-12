@@ -1,4 +1,13 @@
 {
+    "_meta": {
+        "fields": {
+            "ref_id": {
+                "tags": [
+                    "ref:RefExample/id"
+                ]
+            }
+        }
+    },
     "1": {
         "id": 1,
         "name": "伤害增强",

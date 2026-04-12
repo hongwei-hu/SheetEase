@@ -27,16 +27,14 @@ from ..utils.naming_config import (
     JSON_WARN_TOTAL_BYTES,
     JSON_WARN_RECORD_BYTES,
 )
-from ..validation.asset_validator import get_asset_validator
 from ..utils.user_utils import user_confirm
 from ..parsing.field_parser import (
     KEY1_PREFIX_RE,
     KEY2_PREFIX_RE,
     REF_PREFIX_RE,
-    ASSET_PREFIX_RE,
     extract_actual_field_name,
     parse_ref_prefix,
-    parse_asset_prefix,
+    get_field_tags,
     parse_key_prefix,
 )
 from ..utils.type_utils import parse_type_annotation
@@ -148,8 +146,6 @@ class WorksheetData:
 
         # 解析字段上的引用前缀 [Sheet/Field]
         self._ref_specs: Dict[int, Tuple[str, Optional[str]]] = {}
-        # 解析字段上的资源前缀 [Asset] 或 [Asset:ext]
-        self._asset_specs: Dict[int, Optional[str]] = {}
         for i, raw_field_name in enumerate(self.field_names):
             if i == 0:
                 continue
@@ -157,13 +153,11 @@ class WorksheetData:
                 continue
             if not isinstance(raw_field_name, str):
                 continue
-            # 先解析资源标记 —— 命中后不再作为引用处理，避免混淆
-            asset_result = parse_asset_prefix(raw_field_name)
-            if asset_result:
-                field_name, ext = asset_result
-                self._asset_specs[i] = ext
+            # [Asset] 标记不做资源校验，仅输出到 _meta tags；跳过 ref 解析以避免误识别
+            tags = get_field_tags(raw_field_name)
+            if any(t.startswith("asset") for t in tags):
                 continue
-            # 再解析引用标记
+            # 解析引用标记
             ref_result = parse_ref_prefix(raw_field_name)
             if ref_result:
                 sheet, field = ref_result
@@ -314,7 +308,21 @@ class WorksheetData:
         # 避免重复收集：若同一张表导出到多个目录，这里清空后重新收集一次
         self._reference_checker.clear_pending_checks()
 
+        # 构建字段标签元数据（_meta.fields）
+        field_tags_meta: Dict[str, Any] = {}
+        for i, raw in enumerate(self.field_names):
+            if i == 0 or self.data_labels[i] == "ignore":
+                continue
+            if not isinstance(raw, str):
+                continue
+            tags = get_field_tags(raw)
+            if tags:
+                field_tags_meta[self._actual_field_name(i)] = {"tags": tags}
+
         data: Dict[Any, Dict[str, Any]] = {}
+        # 若有字段标签，在所有记录之前写入 _meta
+        if field_tags_meta:
+            data["_meta"] = {"fields": field_tags_meta}
         serial_key = 0
         first_real = self._actual_field_name(1) if len(self.field_names) > 1 else None
         used_keys = {}
@@ -385,41 +393,6 @@ class WorksheetData:
                 else:
                     value = convert_to_type(type_str, cell_value, data_name, self.name)
                 row_obj[data_name] = value
-
-                # 资源字段校验：[Asset] 或 [Asset:ext]，值为无扩展名文件名；严格大小写匹配文件名，扩展名忽略大小写
-                if col_index in getattr(self, "_asset_specs", {}):
-                    # 仅对 string 或 list(string) 做校验；其他类型跳过
-                    try:
-                        _kind, _base = parse_type_annotation(type_str)
-                    except Exception:
-                        _kind, _base = ("scalar", None)
-                    required_ext = self._asset_specs.get(col_index)
-                    validator = get_asset_validator()
-                    if validator is None:
-                        # 未配置或解析失败：提示一次全局警告后跳过（每字段每行不重复提示）
-                        if not hasattr(self, "_asset_validator_missing_warned"):
-                            log_warn(f"[{self.name}] 未配置 YooAsset 收集设置或解析失败，已跳过 [Asset] 字段校验。请在 sheet_config.json 配置 yooasset.collector_setting")
-                            setattr(self, "_asset_validator_missing_warned", True)
-                    else:
-                        def _check_one_filename(fname: Any):
-                            if not isinstance(fname, str) or not fname.strip():
-                                return
-                            if validator is None:
-                                return
-                            ok = validator.exists_base_name(fname.strip(), required_ext)
-                            if not ok:
-                                msg = f"[{self.name}] 行{excel_row} 字段 {data_name} 标记为[Asset{(':'+required_ext) if required_ext else ''}]，在任一收集路径下未找到文件名为 '{fname}' 的资源"
-                                if validator.strict:
-                                    # 严格模式：直接报错中断
-                                    raise RuntimeError(msg)
-                                else:
-                                    log_warn(msg)
-
-                        if _kind == "list" and isinstance(value, list):
-                            for ele in value:
-                                _check_one_filename(ele)
-                        else:
-                            _check_one_filename(value)
 
                 # 收集引用检查
                 if col_index in self._ref_specs:

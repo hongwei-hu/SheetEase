@@ -271,38 +271,12 @@ class MainWindow:
             font=('Segoe UI', 13, 'bold'),
         )
         self.btn_run.grid(row=0, column=0, rowspan=2, padx=(0, 18), sticky='w')
-        # 常驻高级选项：保留资产严格校验模式，不折叠
         self._advanced_visible = False
-        yoo = (init_cfg or {}).get('yooasset', {}) if isinstance((init_cfg or {}).get('yooasset', {}), dict) else {}
-        self.vars['yooasset.collector_setting'] = tk.StringVar(value=yoo.get('collector_setting', ''))
-        self.vars['yooasset.strict'] = tk.BooleanVar(value=bool(yoo.get('strict', False)))
 
         option_frame = tk.Frame(header)
         option_frame.grid(row=0, column=1, rowspan=2, sticky='w')
         self.chk_auto = tk.Checkbutton(option_frame, text='打开时自动导表', variable=self.vars['auto_run'])
         self.chk_auto.grid(row=0, column=0, sticky='w')
-        self.chk_strict = tk.Checkbutton(option_frame, text='资产校验严格模式（失败中断）', variable=self.vars['yooasset.strict'])
-        self.chk_strict.grid(row=1, column=0, sticky='w')
-        self.btn_strict_info = tk.Label(option_frame, text='(i)', fg='#2b6cb0', cursor='hand2')
-        self.btn_strict_info.grid(row=1, column=1, sticky='w', padx=(6, 0))
-        self.btn_strict_example = tk.Button(
-            option_frame,
-            text='查看示例',
-            relief='flat',
-            fg='#2b6cb0',
-            activeforeground='#1f4e8a',
-            activebackground=option_frame.cget('bg'),
-            bg=option_frame.cget('bg'),
-            bd=0,
-            highlightthickness=0,
-            cursor='hand2',
-            padx=0,
-            pady=0,
-            command=self._show_strict_examples,
-        )
-        self.btn_strict_example.grid(row=1, column=2, sticky='w', padx=(10, 0))
-        self.btn_strict_info.bind('<Enter>', lambda _e: self._show_strict_tooltip())
-        self.btn_strict_info.bind('<Leave>', lambda _e: self._hide_strict_tooltip())
 
         # 日志工具栏 + 日志区
         log_toolbar = tk.Frame(master, padx=12)
@@ -364,7 +338,6 @@ class MainWindow:
         menubar = tk.Menu(self.master)
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label='基础配置', command=lambda: self._open_settings_dialog('basic'))
-        settings_menu.add_command(label='YooAsset 收集设置', command=lambda: self._open_settings_dialog('yooasset'))
         settings_menu.add_separator()
         settings_menu.add_command(label='保存配置', command=self.on_save)
         menubar.add_cascade(label='设置', menu=settings_menu)
@@ -400,12 +373,6 @@ class MainWindow:
         self._add_count_label(basic_tab, 5, 'cs_output')
         self._add_row(basic_tab, 6, '枚举输出目录', 'enum_output')
         self._add_count_label(basic_tab, 7, 'enum_output')
-
-        yoo_tab = tk.Frame(notebook)
-        yoo_tab.grid_columnconfigure(1, weight=1)
-        notebook.add(yoo_tab, text='YooAsset')
-        self._add_file_row(yoo_tab, 0, 'YooAsset CollectorSetting.asset', 'yooasset.collector_setting')
-        tk.Label(yoo_tab, text='提示：严格校验开关已移至主界面。', fg='#666666').grid(row=1, column=0, columnspan=4, sticky='w', pady=(4, 0))
 
         btns = tk.Frame(win)
         btns.grid(row=1, column=0, sticky='e', padx=12, pady=(0, 12))
@@ -445,48 +412,6 @@ class MainWindow:
         if index < len(tabs):
             self._settings_notebook.select(tabs[index])
 
-    def _show_strict_tooltip(self):
-        self._hide_strict_tooltip()
-        tip = tk.Toplevel(self.master)
-        tip.wm_overrideredirect(True)
-        x = self.btn_strict_info.winfo_rootx() + 16
-        y = self.btn_strict_info.winfo_rooty() + 20
-        tip.wm_geometry(f'+{x}+{y}')
-        msg = (
-            '严格模式：任一 [Asset] 字段校验失败将中断导出。\n'
-            '关闭严格模式：失败仅记录警告并继续导出。\n\n'
-            '收集设置路径请在「设置 -> YooAsset 收集设置」中配置：\n'
-            '通常指向 Unity 工程中的 CollectorSetting.asset 文件。'
-        )
-        tk.Label(tip, text=msg, justify='left', bg='#fffbe6', fg='#333333',
-                 relief='solid', bd=1, padx=8, pady=6).pack()
-        self._tooltip = tip
-
-    def _show_strict_examples(self):
-        msg = (
-            '常见 [Asset] 标注示例：\n'
-            '1) [Asset]icon_name\n'
-            '2) [Asset:prefab]hero_prefab\n'
-            '3) list(string) + [Asset:sprite]icon_list\n\n'
-            'CollectorSetting 路径建议：\n'
-            '- Unity项目/Assets/.../CollectorSetting.asset\n'
-            '- 在「设置 -> YooAsset 收集设置」中选择该 asset 文件\n\n'
-            '严格模式开启：任一资源未找到即中断导出。\n'
-            '严格模式关闭：记录警告并继续导出。'
-        )
-        try:
-            messagebox.showinfo('严格校验示例', msg)
-        except Exception:
-            pass
-
-    def _hide_strict_tooltip(self):
-        if self._tooltip:
-            try:
-                self._tooltip.destroy()
-            except Exception:
-                pass
-            self._tooltip = None
-
     def _build_cfg(self) -> dict:
         return {
             'excel_root': self.vars['excel_root'].get().strip(),
@@ -501,10 +426,6 @@ class MainWindow:
                 'last_export_time': self._last_export_time,
                 'last_export_elapsed': self._last_export_elapsed,
             },
-            'yooasset': {
-                'collector_setting': self.vars['yooasset.collector_setting'].get().strip(),
-                'strict': bool(self.vars['yooasset.strict'].get()),
-            }
         }
 
     def _settings_status_text(self) -> str:
@@ -513,7 +434,7 @@ class MainWindow:
         return f'上次成功导出：{t}    上次耗时：{e}'
 
     def _bind_snapshot_traces(self):
-        keys = ['excel_root', 'output_project', 'cs_output', 'enum_output', 'yooasset.strict']
+        keys = ['excel_root', 'output_project', 'cs_output', 'enum_output']
         for k in keys:
             try:
                 self.vars[k].trace_add('write', lambda *_args: self._refresh_snapshot())
@@ -527,10 +448,9 @@ class MainWindow:
                 return '未配置'
             return Path(raw).name or raw
 
-        strict_mode = '开' if bool(self.vars['yooasset.strict'].get()) else '关'
         text = (
             f"配置快照：Excel[{_name_of('excel_root')}] 输出[{_name_of('output_project')}] "
-            f"脚本[{_name_of('cs_output')}] 枚举[{_name_of('enum_output')}] 严格[{strict_mode}]"
+            f"脚本[{_name_of('cs_output')}] 枚举[{_name_of('enum_output')}]"
         )
         self.snapshot_text.set(text)
 
@@ -560,22 +480,6 @@ class MainWindow:
             warnings.append('C# 输出目录不在 Unity Assets 子目录')
         if not self._is_under_assets(enum_output):
             warnings.append('枚举输出目录不在 Unity Assets 子目录')
-
-        collector = cfg.get('yooasset', {}).get('collector_setting', '') if isinstance(cfg.get('yooasset', {}), dict) else ''
-        if collector:
-            cp = Path(collector)
-            if not cp.exists():
-                errors.append('YooAsset CollectorSetting 路径不存在')
-            elif cp.suffix.lower() != '.asset':
-                warnings.append('YooAsset CollectorSetting 不是 .asset 文件')
-            else:
-                try:
-                    with open(cp, 'rb') as _fp:
-                        _fp.read(1)
-                except Exception:
-                    errors.append('YooAsset CollectorSetting 文件不可读')
-        else:
-            warnings.append('未配置 YooAsset CollectorSetting（将跳过资产校验）')
 
         if errors:
             details = '\n'.join([f'- {x}' for x in errors] + [f'- {x}' for x in warnings])
@@ -821,14 +725,10 @@ class MainWindow:
                 self.btn_run.configure(text='导出中…', state='disabled')
                 self.btn_clear.configure(state='disabled')
                 self.chk_auto.configure(state='disabled')
-                self.chk_strict.configure(state='disabled')
-                self.btn_strict_example.configure(state='disabled')
             else:
                 self.btn_run.configure(text='开始导出', state='normal')
                 self.btn_clear.configure(state='normal')
                 self.chk_auto.configure(state='normal')
-                self.chk_strict.configure(state='normal')
-                self.btn_strict_example.configure(state='normal')
         except Exception:
             pass
 

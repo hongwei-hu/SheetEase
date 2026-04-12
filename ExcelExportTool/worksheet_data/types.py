@@ -13,8 +13,6 @@ KEY2_PREFIX_RE = re.compile(r"^\s*key2\s*:\s*(?P<name>.+)\s*$", re.IGNORECASE)
 # [Sheet/Field]FieldName 或 [Sheet]FieldName（省略 Field -> 默认 id）
 # 引用标记：[Sheet/Field]FieldName（Sheet 名不允许包含 ':'，避免与 [Asset:ext] 混淆）
 REF_PREFIX_RE = re.compile(r"^\s*\[(?P<sheet>[^:/\]]+)(?:/(?P<field>[^\]]+))?\]\s*(?P<name>.+)$")
-# [Asset]FieldName 或 [Asset:png]FieldName —— 资源文件校验标记
-ASSET_PREFIX_RE = re.compile(r"^\s*\[(?:asset)(?::(?P<ext>[A-Za-z0-9_]+))?\]\s*(?P<name>.+)$", re.IGNORECASE)
 
 # 可选字段统计开关
 PRINT_FIELD_SUMMARY = True

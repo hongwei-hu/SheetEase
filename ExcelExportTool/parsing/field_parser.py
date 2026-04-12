@@ -2,9 +2,10 @@
 # MIT License
 """
 字段名解析模块：处理字段名前缀解析（key1:, key2:, [Sheet/Field], [Asset]等）。
+[Asset] 标记不再触发资源校验逻辑，仅作为字段标签写入导出 JSON 的 _meta 区域。
 """
 import re
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 # 字段名前缀正则表达式
@@ -108,6 +109,35 @@ def parse_asset_prefix(raw_field_name: str) -> Optional[Tuple[str, Optional[str]
         ext = ext.strip().lower() if isinstance(ext, str) and ext.strip() else None
         return (field_name, ext)
     return None
+
+
+def get_field_tags(raw_field_name: str) -> List[str]:
+    """
+    从原始字段名中提取标签列表，用于 JSON _meta 区域的 tags 字段导出。
+
+    返回格式：
+      - [Sheet/Field]name  →  ["ref:Sheet/Field"]
+      - [Sheet]name        →  ["ref:Sheet"]
+      - [Asset]name        →  ["asset"]
+      - [Asset:ext]name    →  ["asset:ext"]
+      - 无标签前缀         →  []
+    """
+    if not isinstance(raw_field_name, str):
+        return []
+    m_asset = ASSET_PREFIX_RE.match(raw_field_name)
+    if m_asset:
+        ext = m_asset.group("ext")
+        if ext:
+            return [f"asset:{ext.strip().lower()}"]
+        return ["asset"]
+    m_ref = REF_PREFIX_RE.match(raw_field_name)
+    if m_ref:
+        sheet = m_ref.group("sheet").strip()
+        field = m_ref.group("field")
+        if field:
+            return [f"ref:{sheet}/{field.strip()}"]
+        return [f"ref:{sheet}"]
+    return []
 
 
 def parse_key_prefix(raw_field_name: str) -> Optional[Tuple[str, str]]:
