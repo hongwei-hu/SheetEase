@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using GameUtility;
 using GameUtility.IO;
+using UnityEngine;
 
 namespace Data.TableScript
 {
@@ -12,8 +13,12 @@ namespace Data.TableScript
     {
         private static bool _isLoaded;
         private static readonly Dictionary<Type, IConfigDataBase> Data = new();
+        private static Assembly _assembly;
 
-        public const string AssemblyName = "RuntimeShared";
+        private const string AssemblyName = "RuntimeShared";
+        private const string NamespaceName = "Data.TableScript";
+        public const string ConfigRawInfoSuffix = "Info";
+        public const string ConfigDataBaseSuffix = "Config";
 
         /// <summary>
         /// 加载所有配置表，通常在开始游戏时执行
@@ -28,10 +33,9 @@ namespace Data.TableScript
                 return;
             }
 
-            Assembly assembly;
             try
             {
-                assembly = Assembly.Load(AssemblyName);
+                _assembly = Assembly.Load(AssemblyName);
             }
             catch (FileNotFoundException)
             {
@@ -42,7 +46,7 @@ namespace Data.TableScript
                 throw new Exception($"加载程序集失败: {ex.Message}");
             }
 
-            foreach (var type in assembly.GetTypes())
+            foreach (var type in _assembly.GetTypes())
             {
                 if (!type.IsClass || type.IsAbstract || !typeof(IConfigDataBase).IsAssignableFrom(type))
                 {
@@ -84,21 +88,26 @@ namespace Data.TableScript
             var result = JsonSerializeUtility.DeserializeFromFile<T>(filePath);
 #else
             var jsonText = GameModule.Resource.LoadAsset<UnityEngine.TextAsset>(filePath);
-            var result = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(jsonText.text);
+            var result = Newtonsoft.Json.JsonConvert.DeserializeObject<T>(jsonText.text, GameUtility.IO.JsonSerializeUtility.ConfigDeserializeSettings);
             GameModule.Resource.UnloadAsset(jsonText);
 #endif
             return result;
         }
 
         /// <summary>
-        /// 加载指定的配置表
+        /// 加载指定的配置表，默认为重新加载
         /// </summary>
         /// <typeparam name="T">行数据类型，比如<see cref="ItemInfo"/></typeparam>
         /// <exception cref="InvalidOperationException">数据类没有继承IConfigDataBase</exception>
-        public static void Load<T>()
+        public static void Load<T>(bool reload = true)
         {
             var type = typeof(T);
-            if (Data.ContainsKey(type))
+            Load(type, reload);
+        }
+
+        private static void Load(Type type, bool reload)
+        {
+            if (Data.ContainsKey(type) && !reload)
             {
                 return;
             }
@@ -108,9 +117,14 @@ namespace Data.TableScript
             foreach (var t in targetType.Where(t => t.IsClass && !t.IsAbstract))
             {
                 var baseType = t.BaseType;
-                if (baseType is not { IsGenericType: true } ||
-                    baseType.GetGenericTypeDefinition() != typeof(ConfigDataBase<>))
+                if (baseType is not { IsGenericType: true })
                     continue;
+
+                // var genericTypeDef = baseType.GetGenericTypeDefinition();
+                // if (genericTypeDef == null || genericTypeDef != typeof(ConfigDataBase<>) &&
+                //     genericTypeDef != typeof(ConfigDataWithCompositeId<>) &&
+                //     genericTypeDef != typeof(ConfigDataWithKey<>))
+                //     continue;
 
                 var genericArg = baseType.GetGenericArguments()[0];
                 if (genericArg == type)
@@ -128,24 +142,21 @@ namespace Data.TableScript
             }
         }
 
-#if UNITY_EDITOR
         /// <summary>
         /// 获取某个配置表的显示映射字典，key是唯一id，value是用于显示的字符串
         /// 主要用于编辑器下的下拉列表显示
         /// </summary>
-        /// <typeparam name="T">行数据类型，比如<see cref="ItemInfo"/></typeparam>
+        /// <param name="type">配置表数据类类型</param>
         /// <returns>所有行数据的id和显式内容</returns>
-        public static Dictionary<int, string> GetDisplayMap<T>() where T : IConfigRawInfo
+        public static Dictionary<int, string> GetDisplayMap(Type type)
         {
-            var key = typeof(T);
-            if (!Data.ContainsKey(key))
+            if (!Data.ContainsKey(type))
             {
-                Load<T>();
+                Load(type, true);
             }
 
-            return Data[key].GetDisplayMap();
+            return Data[type].GetDisplayMap();
         }
-#endif
 
         /// <summary>
         /// 通过唯一id查找数据
@@ -157,12 +168,45 @@ namespace Data.TableScript
         public static T GetData<T>(int id) where T : IConfigRawInfo
         {
             var key = typeof(T);
-            if (Data.TryGetValue(key, out var typeData))
+            if (TryGetData(key, id, out var result))
             {
-                return (T)typeData.GetData(id);
+                return (T)result;
             }
 
             throw new InvalidOperationException($"Cannot find the config data of type {key.Name} by id: {id}.");
+        }
+
+        /// <summary>
+        /// 尝试通过唯一id查找数据
+        /// </summary>
+        /// <param name="id">唯一主键</param>
+        /// <param name="type">配置表数据类类型</param>
+        ///  <param name="result">配置表数据结果</param>
+        /// <returns>id对应的行数据</returns>
+        /// <exception cref="InvalidOperationException">无法找到对应id的数据</exception>
+        public static bool TryGetData(Type type, int id, out IConfigRawInfo result)
+        {
+            if (!Data.TryGetValue(type, out var typeData))
+            {
+                Load(type, true);
+                typeData = Data[type];
+            }
+
+            return typeData.TryGetData(id, out result);
+        }
+
+        public static bool TryGetData<T>(int id, out T result) where T : IConfigRawInfo
+        {
+            var type = typeof(T);
+            if (TryGetData(type, id, out var data))
+            {
+                result = (T)data;
+                return true;
+            }
+
+            Debug.LogError($"不存在id为{id}的{type}配置表数据");
+            result = default;
+            return false;
         }
 
         /// <summary>
@@ -175,12 +219,15 @@ namespace Data.TableScript
         public static T GetDataByKey<T>(Enum key) where T : IConfigRawInfo
         {
             var typeKey = typeof(T);
-            if (Data.TryGetValue(typeKey, out var typeData))
+            if (!Data.TryGetValue(typeKey, out var typeData))
             {
-                if (typeData is IConfigDataWithKey<T> configDataWithKey)
-                {
-                    return configDataWithKey.GetDataByKey(key);
-                }
+                Load<T>();
+                typeData = Data[typeKey];
+            }
+
+            if (typeData is IConfigDataWithKey<T> configDataWithKey)
+            {
+                return configDataWithKey.GetDataByKey(key);
             }
 
             throw new InvalidOperationException($"Cannot find the config data of type {typeKey.Name} by key: {key}.");
@@ -207,6 +254,21 @@ namespace Data.TableScript
 
             throw new InvalidOperationException(
                 $"Cannot find the config data of type {typeKey.Name} by composite key: ({key1}, {key2}).");
+        }
+
+        /// <summary>
+        /// 获取指定配置表的所有数据行
+        /// </summary>
+        /// <typeparam name="T">行数据类型，比如<see cref="LootInfo"/></typeparam>
+        /// <returns>所有的行数据列表</returns>
+        public static List<T> GetAllData<T>() where T : IConfigRawInfo
+        {
+            if (Data.TryGetValue(typeof(T), out var data) && data is IConfigDataBase<T> configData)
+            {
+                return configData.GetAllData();
+            }
+
+            return new List<T>();
         }
 
         /// <summary>
@@ -247,6 +309,21 @@ namespace Data.TableScript
             }
 
             throw new InvalidOperationException($"Cannot find the config data of type {key.Name}.");
+        }
+
+        /// <summary>
+        /// 获取指定名称的配置表行数据类型，例如传入"Item"返回<see cref="ItemInfo"/>类型
+        /// </summary>
+        /// <param name="configName">无后缀的配置表名</param>
+        /// <returns>配置表行数据类型</returns>
+        public static Type GetConfigRawInfoType(string configName)
+        {
+            if (_assembly == null)
+            {
+                _assembly = Assembly.Load(AssemblyName);
+            }
+
+            return _assembly.GetType($"{NamespaceName}.{configName}{ConfigRawInfoSuffix}");
         }
     }
 }
