@@ -133,7 +133,7 @@ class ReferenceChecker:
 
             # 确定实际引用列 real_field
             if field is None:
-                first_row = next(iter(obj.values()), None)
+                first_row = next((v for k, v in obj.items() if k != "_meta"), None)
                 if isinstance(first_row, dict):
                     pick = pick_first_nonempty_field(first_row)
                     real_field = pick or "id"
@@ -152,7 +152,9 @@ class ReferenceChecker:
             # 构建该列的引用集合
             def build_set_for(col: str) -> Tuple[set, Optional[str]]:
                 s: set = set()
-                for _, row in obj.items():
+                for k, row in obj.items():
+                    if k == "_meta":
+                        continue
                     if isinstance(row, dict) and col in row:
                         s.add(row[col])
                 return s, infer_base_from_set(s)

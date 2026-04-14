@@ -320,9 +320,15 @@ class WorksheetData:
                 field_tags_meta[self._actual_field_name(i)] = {"tags": tags}
 
         data: Dict[Any, Dict[str, Any]] = {}
-        # 若有字段标签，在所有记录之前写入 _meta
+        # 构建 _meta：包含字段标签和来源 Excel 文件名
+        meta: Dict[str, Any] = {}
         if field_tags_meta:
-            data["_meta"] = {"fields": field_tags_meta}
+            meta["fields"] = field_tags_meta
+        source_file = getattr(self, "source_file", None)
+        if source_file:
+            meta["source_file"] = source_file
+        if meta:
+            data["_meta"] = meta
         serial_key = 0
         first_real = self._actual_field_name(1) if len(self.field_names) > 1 else None
         used_keys = {}
