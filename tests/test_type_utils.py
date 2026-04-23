@@ -126,3 +126,11 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("dict(int,string)") == "Dictionary<int,string>"
         assert convert_type_to_csharp("dict(string,int)") == "Dictionary<string,int>"
 
+    def test_convert_types_with_constraints(self):
+        """测试带约束的类型不会泄漏到 C# 类型声明中"""
+        assert convert_type_to_csharp("int{min:1,max:5}") == "int"
+        assert convert_type_to_csharp("string{nonempty,maxlen:32}") == "string"
+        assert convert_type_to_csharp("list(int){nonempty,unique}") == "List<int>"
+        assert convert_type_to_csharp("dict(string,int){minsize:1}") == "Dictionary<string,int>"
+        assert convert_type_to_csharp("enum(Rarity){nonempty}") == "Rarity"
+

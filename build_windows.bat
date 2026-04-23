@@ -10,9 +10,12 @@ if errorlevel 1 (
 
 set ENTRY=ExcelExportTool/app_main.py
 set NAME=SheetEase
+set RUNTIME_TMP=%LOCALAPPDATA%\SheetEase\_runtime
+if not exist "%RUNTIME_TMP%" mkdir "%RUNTIME_TMP%"
 
 REM Common flags to ensure all submodules are collected and build is clean
 set COMMON_FLAGS=--noconsole --clean --noconfirm ^
+  --runtime-tmpdir "%RUNTIME_TMP%" ^
   --collect-submodules ExcelExportTool ^
   --hidden-import ExcelExportTool ^
   --hidden-import ExcelExportTool.core.export_process ^
@@ -33,9 +36,11 @@ set DATA_FLAGS=--add-data "ProjectFolder;ProjectFolder" ^
 
 if /I "%1"=="--dir" (
   echo Building mode: dir
+  echo Runtime tmpdir: %RUNTIME_TMP%
   pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --name %NAME% "%ENTRY%"
 ) else (
   echo Building mode: onefile (default)
+  echo Runtime tmpdir: %RUNTIME_TMP%
   pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --onefile --name %NAME% "%ENTRY%"
 )
 

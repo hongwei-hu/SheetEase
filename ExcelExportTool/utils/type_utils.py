@@ -127,6 +127,7 @@ def convert_type_to_csharp(type_str: str) -> str:
     Supports: list, dict, enum(EnumName)
     """
     import re
+    type_str = strip_type_constraints((type_str or "").strip())
     
     # 处理 enum(枚举名)
     enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", type_str, re.IGNORECASE)
