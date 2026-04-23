@@ -96,3 +96,29 @@ class TestTypeValidation:
         with pytest.raises(ValueError, match="空类型定义"):
             convert_to_type("   ", "value")
 
+
+class TestConstraintAnnotatedTypeConversion:
+    """测试：类型注解附带约束时，类型转换层仍应正常工作。"""
+
+    def test_convert_primitive_with_constraints(self):
+        assert convert_to_type("int{min:1,max:5}", "3") == 3
+        assert convert_to_type("float{min:0,max:1}", "0.5") == 0.5
+        assert convert_to_type("string{nonempty,maxlen:8}", 123) == "123"
+
+    def test_convert_list_and_dict_with_constraints(self):
+        result = convert_to_type("list(int){nonempty,unique}", "1,2,3")
+        assert result == [1, 2, 3]
+
+        result = convert_to_type("dict(string,int){minsize:1}", "a:1\nb:2")
+        assert result == {"a": 1, "b": 2}
+
+    def test_convert_custom_type_with_constraints(self):
+        result = convert_to_type("Game.MyType{nonempty}", "x#y")
+        assert isinstance(result, dict)
+        assert result.get("__type") == "Game.MyType"
+        assert result.get("segments") == ["x", "y"]
+
+    def test_unsupported_type_with_constraints_still_raises(self):
+        with pytest.raises(ValueError, match=r"Unsupported data type"):
+            convert_to_type("not_supported{min:1}", "1")
+
