@@ -28,7 +28,8 @@ set COMMON_FLAGS=--noconsole --clean --noconfirm ^
 
 REM Optionally include ProjectFolder as runtime data (for interface/type checks)
 set DATA_FLAGS=--add-data "ProjectFolder;ProjectFolder" ^
-  --add-data "ExcelExportTool;ExcelExportTool"
+  --add-data "ExcelExportTool;ExcelExportTool" ^
+  --add-data "docs;docs"
 
 if /I "%1"=="--dir" (
   echo Building mode: dir

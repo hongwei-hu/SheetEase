@@ -53,6 +53,11 @@ def get_app_dir() -> Path:
 
 
 APP_DIR = get_app_dir()
+GUIDE_REL_PATH = Path('docs') / 'excel-config-guide.md'
+GUIDE_FALLBACK_URL = os.environ.get(
+    'SHEETEASE_GUIDE_URL',
+    'https://github.com/search?q=excel-config-guide.md+SheetEase&type=code'
+)
 # 确保可导入包路径（开发与打包场景都兼容）
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
@@ -352,16 +357,25 @@ class MainWindow:
         """打开 Excel 配置使用手册（内置查看器，同时提供在浏览器中打开的选项）。"""
         import webbrowser
 
-        # 定位 docs/excel-config-guide.md
-        guide_path = APP_DIR / 'docs' / 'excel-config-guide.md'
-        # PyInstaller 冻结环境下尝试 _MEIPASS
-        if not guide_path.exists():
-            meipass = getattr(sys, '_MEIPASS', None)
-            if meipass:
-                guide_path = Path(meipass) / 'docs' / 'excel-config-guide.md'
+        # 定位 docs/excel-config-guide.md，支持开发态/打包态/部署到任意目录
+        guide_candidates = [
+            APP_DIR / GUIDE_REL_PATH,
+            Path.cwd() / GUIDE_REL_PATH,
+        ]
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            guide_candidates.append(Path(meipass) / GUIDE_REL_PATH)
 
-        if not guide_path.exists():
-            messagebox.showwarning('使用说明', f'未找到使用手册文件：\n{guide_path}')
+        guide_path = next((p for p in guide_candidates if p.exists()), None)
+
+        if guide_path is None:
+            # 本地手册缺失时自动打开在线文档，避免阻断。
+            webbrowser.open(GUIDE_FALLBACK_URL)
+            messagebox.showinfo(
+                '使用说明',
+                '本地手册未找到，已自动为你打开在线手册。\n\n'
+                '你也可以在环境变量 SHEETEASE_GUIDE_URL 中配置你自己的文档地址。'
+            )
             return
 
         # 若已有帮助窗口则直接激活
