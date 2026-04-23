@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ..exceptions import UnknownCustomTypeError, CustomTypeParseError
 from ..utils.log import log_warn
 from ..utils.naming_utils import is_valid_csharp_identifier
-from ..utils.type_utils import parse_type_annotation
+from ..utils.type_utils import parse_type_annotation, strip_type_constraints
 from ..generation.enum_registry import get_enum_registry
 
 # 基本类型映射
@@ -128,8 +128,10 @@ def convert_to_type(
     if not type_str:
         raise ValueError("空类型定义")
 
+    normalized_type_str = strip_type_constraints(type_str)
+
     # 解析类型注解
-    kind, base_type = parse_type_annotation(type_str)
+    kind, base_type = parse_type_annotation(normalized_type_str)
     
     # 枚举类型处理
     if kind == "enum":
@@ -141,32 +143,32 @@ def convert_to_type(
             enum_name = enum_match.group(1).strip()
             return _convert_list_enum(enum_name, value, field, sheet, row, col)
         # 普通list
-        return _convert_list(type_str, value, field, sheet, row, col)
+        return _convert_list(normalized_type_str, value, field, sheet, row, col)
     elif kind == "dict" and base_type and base_type.startswith("enum("):
         # dict(..., enum(枚举名))
         enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
         if enum_match:
             enum_name = enum_match.group(1).strip()
-            return _convert_dict_enum(type_str, enum_name, value, field, sheet, row, col)
+            return _convert_dict_enum(normalized_type_str, enum_name, value, field, sheet, row, col)
         # 普通dict
-        return _convert_dict(type_str, value, field, sheet, row, col)
+        return _convert_dict(normalized_type_str, value, field, sheet, row, col)
     
     # 基础类型
-    if type_str in PRIMITIVE_TYPE_MAPPING:
-        return _convert_primitive(type_str, value, field, sheet, row, col)
+    if normalized_type_str in PRIMITIVE_TYPE_MAPPING:
+        return _convert_primitive(normalized_type_str, value, field, sheet, row, col)
     # 容器（普通list/dict）
-    if type_str.startswith("dict"):
-        return _convert_dict(type_str, value, field, sheet, row, col)
-    if type_str.startswith("list"):
-        return _convert_list(type_str, value, field, sheet, row, col)
+    if normalized_type_str.startswith("dict"):
+        return _convert_dict(normalized_type_str, value, field, sheet, row, col)
+    if normalized_type_str.startswith("list"):
+        return _convert_list(normalized_type_str, value, field, sheet, row, col)
     # 自定义(简单策略: 至少包含一个 . 视为全限定类型)
-    if "." in type_str:
-        if custom_type_registry.contains(type_str):
-            return custom_type_registry.parse(type_str, value, field, sheet)
+    if "." in normalized_type_str:
+        if custom_type_registry.contains(normalized_type_str):
+            return custom_type_registry.parse(normalized_type_str, value, field, sheet)
         if GENERIC_CUSTOM_TYPE_FALLBACK:
-            return _generic_custom_type_object(type_str, None if value is None else str(value))
+            return _generic_custom_type_object(normalized_type_str, None if value is None else str(value))
         # 未开启通用回退仍旧报错
-        raise UnknownCustomTypeError(type_str, field, sheet)
+        raise UnknownCustomTypeError(normalized_type_str, field, sheet)
     raise ValueError(f"Unsupported data type: {type_str}")
 
 
@@ -406,7 +408,7 @@ def _convert_dict_enum(type_str: str, enum_name: str, value: Any, field: str = N
 
 def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None):
     """递归类型转换+范围检查。支持基础、list、dict、enum。"""
-    type_str = type_str.strip()
+    type_str = strip_type_constraints(type_str.strip())
     if type_str in PRIMITIVE_TYPE_MAPPING:
         v = PRIMITIVE_TYPE_MAPPING[type_str](value)
         _check_csharp_primitive_range(type_str, v, raw=value, field=field, sheet=sheet, row=row, col=col)
