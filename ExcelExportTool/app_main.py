@@ -54,10 +54,9 @@ def get_app_dir() -> Path:
 
 APP_DIR = get_app_dir()
 GUIDE_REL_PATH = Path('docs') / 'excel-config-guide.md'
-GUIDE_FALLBACK_URL = os.environ.get(
-    'SHEETEASE_GUIDE_URL',
-    'https://github.com/search?q=excel-config-guide.md+SheetEase&type=code'
-)
+GUIDE_PRIMARY_URL = 'https://github.com/hhw060998/SheetEase/blob/main/docs/excel-config-guide.md'
+GUIDE_SECONDARY_URL = 'https://github.com/hhw060998/SheetEase/blob/master/docs/excel-config-guide.md'
+GUIDE_FALLBACK_URL = os.environ.get('SHEETEASE_GUIDE_URL', GUIDE_PRIMARY_URL)
 XLSX_GLOB = '*.xlsx'
 # 确保可导入包路径（开发与打包场景都兼容）
 if str(APP_DIR) not in sys.path:
@@ -372,7 +371,9 @@ class MainWindow:
 
         if guide_path is None:
             # 本地手册缺失时自动打开在线文档，避免阻断。
-            webbrowser.open(GUIDE_FALLBACK_URL)
+            opened = webbrowser.open(GUIDE_FALLBACK_URL)
+            if (not opened) and GUIDE_FALLBACK_URL == GUIDE_PRIMARY_URL:
+                webbrowser.open(GUIDE_SECONDARY_URL)
             messagebox.showinfo(
                 '使用说明',
                 '本地手册未找到，已自动为你打开在线手册。\n\n'
