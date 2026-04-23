@@ -8,6 +8,9 @@ from ..exceptions import ExportError
 
 # 约束块正则：匹配末尾的 {...}（不含嵌套花括号）
 _CONSTRAINT_BLOCK_RE = re.compile(r'^(.*?)(\{[^{}]*\})\s*$', re.DOTALL)
+ENUM_TYPE_RE = re.compile(r"^enum\s*\(\s*([^)]+)\s*\)$", re.IGNORECASE)
+LIST_TYPE_RE = re.compile(r"^list\s*\(\s*(.+)\s*\)$", re.IGNORECASE)
+DICT_TYPE_RE = re.compile(r"^dict\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", re.IGNORECASE)
 
 
 def strip_type_constraints(type_str: str) -> str:
@@ -44,27 +47,26 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
         return s
 
     # 检查是否是 enum(枚举名)
-    enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", t, re.IGNORECASE)
+    enum_match = ENUM_TYPE_RE.match(t)
     if enum_match:
         enum_name = enum_match.group(1).strip()
         return "enum", enum_name
 
     # 检查是否是 list(enum(枚举名))
-    list_match = re.match(r"^list\s*\(\s*(.+)\s*\)$", t, re.IGNORECASE)
+    list_match = LIST_TYPE_RE.match(t)
     if list_match:
         inner = list_match.group(1).strip()
-        inner_enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", inner, re.IGNORECASE)
+        inner_enum_match = ENUM_TYPE_RE.match(inner)
         if inner_enum_match:
             enum_name = inner_enum_match.group(1).strip()
             return "list", f"enum({enum_name})"
         return "list", base_norm(inner)
     
     # 检查是否是 dict(..., enum(枚举名))
-    dict_match = re.match(r"^dict\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", t, re.IGNORECASE)
+    dict_match = DICT_TYPE_RE.match(t)
     if dict_match:
-        key_type = dict_match.group(1).strip()
         value_type = dict_match.group(2).strip()
-        value_enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", value_type, re.IGNORECASE)
+        value_enum_match = ENUM_TYPE_RE.match(value_type)
         if value_enum_match:
             enum_name = value_enum_match.group(1).strip()
             return "dict", f"enum({enum_name})"

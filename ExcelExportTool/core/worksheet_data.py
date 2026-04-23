@@ -72,7 +72,7 @@ class WorksheetData:
 
     # 组合键参数（默认保证合并结果可装入 int32）
     MAX_KEY2 = 46340         # key2 的上限（exclusive）：0 <= key2 < MAX_KEY2
-    MULTIPLIER = MAX_KEY2    # MULTIPLIER = MAX_KEY2
+    MULTIPLIER = MAX_KEY2
 
     def __init__(self, worksheet) -> None:
         self.name: str = worksheet.title

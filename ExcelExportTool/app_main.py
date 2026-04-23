@@ -58,6 +58,7 @@ GUIDE_FALLBACK_URL = os.environ.get(
     'SHEETEASE_GUIDE_URL',
     'https://github.com/search?q=excel-config-guide.md+SheetEase&type=code'
 )
+XLSX_GLOB = '*.xlsx'
 # 确保可导入包路径（开发与打包场景都兼容）
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
@@ -205,6 +206,7 @@ class TextRedirector:
             pass
 
     def flush(self):
+        # stdout/stderr 重定向协议要求存在 flush；Text 控件无需额外刷新逻辑。
         pass
 
     @staticmethod
@@ -651,7 +653,7 @@ class MainWindow:
             except tk.TclError:
                 self.path_inputs.pop(key, None)
 
-    def _status_for(self, key: str, path: str, detail_color: str) -> tuple[str, str]:
+    def _status_for(self, path: str, detail_color: str) -> tuple[str, str]:
         if not path:
             return '未配置', '#999999'
         if detail_color == '#ff5555':
@@ -699,7 +701,12 @@ class MainWindow:
 
         def browse_file():
             cur = self.vars[key].get()
-            initd = os.path.dirname(cur) if os.path.isfile(cur) else (cur if os.path.isdir(cur) else str(APP_DIR))
+            if os.path.isfile(cur):
+                initd = os.path.dirname(cur)
+            elif os.path.isdir(cur):
+                initd = cur
+            else:
+                initd = str(APP_DIR)
             p = filedialog.askopenfilename(initialdir=initd, filetypes=[('Unity Asset','*.asset'), ('All Files','*.*')])
             if p:
                 self.vars[key].set(p)
@@ -725,7 +732,7 @@ class MainWindow:
             lbl.configure(text=text, fg=color)
             st = self.path_status_labels.get(key)
             if st:
-                s_text, s_color = self._status_for(key, path, color)
+                s_text, s_color = self._status_for(path, color)
                 st.configure(text=s_text, fg=s_color)
         except Exception:
             pass
@@ -756,7 +763,7 @@ class MainWindow:
                 if p and p.is_dir():
                     # .xlsx 且首字母大写且非临时文件(~$)
                     n = self._safe_count(
-                        f for f in p.rglob('*.xlsx')
+                        f for f in p.rglob(XLSX_GLOB)
                         if f.name and f.name[0].isupper() and not f.name.startswith('~$')
                     )
             except Exception:
@@ -822,7 +829,7 @@ class MainWindow:
             n = 0
             if p.is_dir():
                 n = self._safe_count(
-                    f for f in p.rglob('*.xlsx')
+                    f for f in p.rglob(XLSX_GLOB)
                     if f.name and f.name[0].isupper() and not f.name.startswith('~$')
                 )
             if n <= 0:
@@ -1017,7 +1024,7 @@ def main():
     # 若 cfg 不合法或为空，也仅作为初值展示在窗口内，让用户修正
     if not cfg:
         cfg = {}
-    app = MainWindow(root, init_cfg=cfg)
+    MainWindow(root, init_cfg=cfg)
     root.mainloop()
     return 0
 
