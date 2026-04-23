@@ -18,6 +18,7 @@ from ..exceptions import (
     CompositeKeyOverflowError,
     InvalidFieldNameError,
     HeaderFormatError,
+    ConstraintViolationError,
 )
 from ..utils.naming_config import (
     JSON_FILE_PATTERN,
@@ -47,6 +48,11 @@ from ..validation.worksheet_validator import (
     validate_enum_name,
 )
 from ..validation.reference_checker import ReferenceChecker
+from ..validation.constraint_checker import (
+    split_type_and_constraint_str,
+    parse_constraint_str,
+    check_constraints,
+)
 
 # 新增：可选字段统计开关（保持功能不变，默认打印一次汇总；若不需要可改为 False）
 _PRINT_FIELD_SUMMARY = True
@@ -165,6 +171,15 @@ class WorksheetData:
 
         # 创建引用检查器
         self._reference_checker = ReferenceChecker(self.name, getattr(self, "source_file", None))
+
+        # 解析各字段的约束配置（从类型注解末尾的 {约束...} 中提取）
+        self._field_constraints: Dict[int, dict] = {}
+        for i, type_str in enumerate(self.data_types):
+            if not type_str or not isinstance(type_str, str):
+                continue
+            _, constraint_str = split_type_and_constraint_str(type_str)
+            if constraint_str:
+                self._field_constraints[i] = parse_constraint_str(constraint_str)
 
         # 字段命名规范校验（C# 标识符），若不合法则抛错终止导出
         for i in range(len(self.field_names)):
@@ -398,6 +413,22 @@ class WorksheetData:
                     value = convert_to_type(type_str, default_value, data_name, self.name)
                 else:
                     value = convert_to_type(type_str, cell_value, data_name, self.name)
+
+                # 约束检查
+                if col_index in self._field_constraints:
+                    kind, base = parse_type_annotation(type_str)
+                    violations = check_constraints(
+                        value,
+                        self._field_constraints[col_index],
+                        kind,
+                        base or "",
+                        data_name,
+                        self.name,
+                        excel_row,
+                    )
+                    if violations:
+                        raise ConstraintViolationError(violations[0])
+
                 row_obj[data_name] = value
 
                 # 收集引用检查

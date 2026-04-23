@@ -6,16 +6,34 @@ from typing import Tuple, Optional
 import re
 from ..exceptions import ExportError
 
+# 约束块正则：匹配末尾的 {...}（不含嵌套花括号）
+_CONSTRAINT_BLOCK_RE = re.compile(r'^(.*?)(\{[^{}]*\})\s*$', re.DOTALL)
+
+
+def strip_type_constraints(type_str: str) -> str:
+    """
+    从类型注解字符串中剥离末尾的约束块 ``{...}``。
+
+    Examples:
+        ``"int{min:0, max:100}"`` -> ``"int"``
+        ``"list(int){nonempty}"`` -> ``"list(int)"``
+        ``"string"``              -> ``"string"``
+    """
+    if not type_str or '{' not in type_str:
+        return (type_str or "").strip()
+    m = _CONSTRAINT_BLOCK_RE.match(type_str.strip())
+    return m.group(1).strip() if m else type_str.strip()
+
 
 def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
     """
-    解析类型注解
-    
+    解析类型注解（自动剥离末尾约束块 ``{...}``）。
+
     Returns:
         (类型种类, 基础类型或枚举名)
         类型种类: "scalar", "list", "dict", "enum"
     """
-    t = (type_str or "").strip()
+    t = strip_type_constraints((type_str or "").strip())
 
     def base_norm(s: str) -> str:
         s = s.strip().lower()
@@ -57,18 +75,18 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
 
 def validate_type_annotation(type_str: str) -> Tuple[bool, str]:
     """
-    验证类型注解的合法性
-    
+    验证类型注解的合法性（自动忽略末尾约束块 ``{...}``）。
+
     Args:
         type_str: 类型注解字符串
-    
+
     Returns:
         (是否合法, 错误消息)
     """
     if not type_str or not isinstance(type_str, str):
         return False, "类型注解为空或不是字符串"
-    
-    type_str = type_str.strip()
+
+    type_str = strip_type_constraints(type_str.strip())
     if not type_str:
         return False, "类型注解为空"
     

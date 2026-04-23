@@ -27,6 +27,7 @@ try:  # noqa: F401
     from ExcelExportTool.parsing import data_processing as _dp_collect  # type: ignore
     from ExcelExportTool.parsing import excel_processing as _xp_collect  # type: ignore
     from ExcelExportTool.utils import type_utils as _tu_collect  # type: ignore
+    from ExcelExportTool.validation import constraint_checker as _cc_collect  # type: ignore
     from ExcelExportTool.utils import naming_config as _nc_collect  # type: ignore
     from ExcelExportTool.utils import naming_utils as _nu_collect  # type: ignore
     from ExcelExportTool.utils import log as _log_collect  # type: ignore
@@ -38,6 +39,7 @@ except Exception:  # 在开发环境无影响
     _dp_collect = None  # type: ignore
     _xp_collect = None  # type: ignore
     _tu_collect = None  # type: ignore
+    _cc_collect = None  # type: ignore
     _nc_collect = None  # type: ignore
     _nu_collect = None  # type: ignore
     _log_collect = None  # type: ignore
@@ -341,7 +343,115 @@ class MainWindow:
         settings_menu.add_separator()
         settings_menu.add_command(label='保存配置', command=self.on_save)
         menubar.add_cascade(label='设置', menu=settings_menu)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label='使用说明', command=self._open_help)
+        menubar.add_cascade(label='帮助', menu=help_menu)
         self.master.config(menu=menubar)
+
+    def _open_help(self):
+        """打开 Excel 配置使用手册（内置查看器，同时提供在浏览器中打开的选项）。"""
+        import webbrowser
+
+        # 定位 docs/excel-config-guide.md
+        guide_path = APP_DIR / 'docs' / 'excel-config-guide.md'
+        # PyInstaller 冻结环境下尝试 _MEIPASS
+        if not guide_path.exists():
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
+                guide_path = Path(meipass) / 'docs' / 'excel-config-guide.md'
+
+        if not guide_path.exists():
+            messagebox.showwarning('使用说明', f'未找到使用手册文件：\n{guide_path}')
+            return
+
+        # 若已有帮助窗口则直接激活
+        if hasattr(self, '_help_window') and self._help_window and self._help_window.winfo_exists():
+            self._help_window.deiconify()
+            self._help_window.lift()
+            return
+
+        win = tk.Toplevel(self.master)
+        win.title('SheetEase 使用说明')
+        win.geometry('900x700')
+        win.minsize(640, 420)
+        win.grid_rowconfigure(1, weight=1)
+        win.grid_columnconfigure(0, weight=1)
+        self._help_window = win
+
+        toolbar = tk.Frame(win, padx=8, pady=4)
+        toolbar.grid(row=0, column=0, sticky='we')
+        tk.Button(
+            toolbar, text='在系统浏览器中打开',
+            command=lambda p=guide_path: webbrowser.open(p.as_uri()),
+        ).pack(side='left', padx=(0, 8))
+        tk.Label(toolbar, text=str(guide_path), fg='#888888', font=('Consolas', 8)).pack(side='left')
+
+        text_frame = tk.Frame(win)
+        text_frame.grid(row=1, column=0, sticky='nsew', padx=8, pady=(0, 8))
+        text_frame.grid_rowconfigure(0, weight=1)
+        text_frame.grid_columnconfigure(0, weight=1)
+
+        vscroll = tk.Scrollbar(text_frame, orient='vertical')
+        vscroll.grid(row=0, column=1, sticky='ns')
+        hscroll = tk.Scrollbar(text_frame, orient='horizontal')
+        hscroll.grid(row=1, column=0, sticky='we')
+
+        text_widget = tk.Text(
+            text_frame,
+            wrap='none',
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='#d4d4d4',
+            font=('Consolas', 10),
+            yscrollcommand=vscroll.set,
+            xscrollcommand=hscroll.set,
+            padx=12,
+            pady=8,
+        )
+        text_widget.grid(row=0, column=0, sticky='nsew')
+        vscroll.config(command=text_widget.yview)
+        hscroll.config(command=text_widget.xview)
+
+        # 简单 Markdown 高亮 tag
+        text_widget.tag_config('h1', foreground='#569cd6', font=('Consolas', 14, 'bold'))
+        text_widget.tag_config('h2', foreground='#4ec9b0', font=('Consolas', 12, 'bold'))
+        text_widget.tag_config('h3', foreground='#9cdcfe', font=('Consolas', 11, 'bold'))
+        text_widget.tag_config('code_block', foreground='#ce9178', background='#2d2d2d', font=('Consolas', 10))
+        text_widget.tag_config('table_sep', foreground='#555555')
+        text_widget.tag_config('inline_code', foreground='#ce9178', font=('Consolas', 10))
+
+        try:
+            content = guide_path.read_text(encoding='utf-8')
+        except Exception as e:
+            content = f'读取文件失败: {e}'
+
+        # 简单 Markdown 渲染：按行解析
+        in_code_block = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('```'):
+                in_code_block = not in_code_block
+                text_widget.insert(tk.END, line + '\n', 'code_block')
+            elif in_code_block:
+                text_widget.insert(tk.END, line + '\n', 'code_block')
+            elif line.startswith('# '):
+                text_widget.insert(tk.END, line + '\n', 'h1')
+            elif line.startswith('## '):
+                text_widget.insert(tk.END, line + '\n', 'h2')
+            elif line.startswith('### '):
+                text_widget.insert(tk.END, line + '\n', 'h3')
+            elif line.startswith('|') and all(c in '|-: \t' for c in stripped):
+                text_widget.insert(tk.END, line + '\n', 'table_sep')
+            else:
+                text_widget.insert(tk.END, line + '\n')
+
+        text_widget.config(state='disabled')
+
+        def _on_help_close():
+            self._help_window = None
+            win.destroy()
+        win.protocol('WM_DELETE_WINDOW', _on_help_close)
+
 
     def _open_settings_dialog(self, tab: str = 'basic'):
         if self._settings_window and self._settings_window.winfo_exists():

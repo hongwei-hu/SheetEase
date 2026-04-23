@@ -129,6 +129,12 @@ class PathTraversalError(ExportError):
         super().__init__(msg, context)
 
 
+class ConstraintViolationError(ExportError):
+    """字段约束违规：值不满足在类型注解中配置的约束条件"""
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(f"约束违规: {message}", context)
+
+
 class InvalidPathError(ExportError):
     """无效路径"""
     def __init__(self, path: str, reason: str, context: Optional[Dict[str, Any]] = None):

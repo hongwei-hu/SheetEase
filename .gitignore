@@ -24,3 +24,4 @@ env/
 # PyInstaller spec files
 SheetEase.spec
 *.spec
+/build_deploy.bat
