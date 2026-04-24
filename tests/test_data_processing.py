@@ -32,6 +32,34 @@ class TestConvertPrimitiveTypes:
         """测试float类型转换"""
         assert convert_to_type("float", "123.45") == 123.45
         assert convert_to_type("float", "-67.89") == -67.89
+
+    def test_convert_nonnegative_numeric_types(self):
+        """测试非负数值基础类型转换"""
+        assert convert_to_type("nnint", "0") == 0
+        assert convert_to_type("nnint", "123") == 123
+        assert convert_to_type("nnfloat", "0") == 0.0
+        assert convert_to_type("nnfloat", "1.25") == 1.25
+
+    def test_convert_positive_numeric_types(self):
+        """测试正数值基础类型转换"""
+        assert convert_to_type("pint", "1") == 1
+        assert convert_to_type("pfloat", "1.25") == 1.25
+
+    def test_convert_nonnegative_numeric_types_reject_negative(self):
+        """测试非负数值基础类型会拒绝负数"""
+        with pytest.raises(ValueError, match="非负数"):
+            convert_to_type("nnint", "-1")
+
+        with pytest.raises(ValueError, match="非负数"):
+            convert_to_type("nnfloat", "-0.5")
+
+    def test_convert_positive_numeric_types_reject_nonpositive(self):
+        """测试正数值基础类型会拒绝非正数"""
+        with pytest.raises(ValueError, match="正数"):
+            convert_to_type("pint", "0")
+
+        with pytest.raises(ValueError, match="正数"):
+            convert_to_type("pfloat", "-0.5")
     
     def test_convert_bool(self):
         """测试bool类型转换"""

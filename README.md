@@ -49,7 +49,7 @@ ProjectFolder/          # C# 工程与导出示例
 
 ## 数据类型与自定义类型
 
-- 基础类型：`int`、`float`、`string/str`、`bool`
+- 基础类型：`int`、`float`、`string/str`、`bool`、`nnint`、`nnfloat`、`pint`、`pfloat`
 - 容器类型：`list(...)`、`dict(...)`
 - **自定义类型**：
   - **通用回退**（默认）：Excel 类型行填写全限定名，单元格用 `#` 分隔，导出为 `{ "__type": ..., "segments": [...] }`，C# 端自定义解析。

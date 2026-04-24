@@ -12,10 +12,16 @@ set ENTRY=ExcelExportTool/app_main.py
 set NAME=SheetEase
 set RUNTIME_TMP=%LOCALAPPDATA%\SheetEase\_runtime
 if not exist "%RUNTIME_TMP%" mkdir "%RUNTIME_TMP%"
+set WORKPATH=build
+set DISTPATH=dist
+set SPECPATH=.
 
 REM Common flags to ensure all submodules are collected and build is clean
 set COMMON_FLAGS=--noconsole --clean --noconfirm ^
   --runtime-tmpdir "%RUNTIME_TMP%" ^
+  --workpath "%WORKPATH%" ^
+  --distpath "%DISTPATH%" ^
+  --specpath "%SPECPATH%" ^
   --collect-submodules ExcelExportTool ^
   --hidden-import ExcelExportTool ^
   --hidden-import ExcelExportTool.core.export_process ^
@@ -35,15 +41,37 @@ set DATA_FLAGS=--add-data "ProjectFolder;ProjectFolder" ^
   --add-data "docs;docs"
 
 if /I "%1"=="--dir" (
-  echo Building mode: dir
-  echo Runtime tmpdir: %RUNTIME_TMP%
-  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --name %NAME% "%ENTRY%"
+  set BUILD_MODE=dir
 ) else (
-  echo Building mode: onefile (default)
-  echo Runtime tmpdir: %RUNTIME_TMP%
-  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --onefile --name %NAME% "%ENTRY%"
+  set BUILD_MODE=onefile
+)
+
+echo Building mode: %BUILD_MODE%
+echo Runtime tmpdir: %RUNTIME_TMP%
+echo Work path: %WORKPATH%
+echo Dist path: %DISTPATH%
+
+call :run_build %BUILD_MODE%
+if errorlevel 1 (
+  echo [Warn] First build attempt failed. Retrying once with clean intermediates...
+  if exist "%WORKPATH%\%NAME%" rmdir /s /q "%WORKPATH%\%NAME%"
+  if exist "%SPECPATH%\%NAME%.spec" del /f /q "%SPECPATH%\%NAME%.spec"
+  call :run_build %BUILD_MODE%
+  if errorlevel 1 (
+    echo [Error] Build failed after retry.
+    exit /b 1
+  )
 )
 
 echo Build finished. Check the dist folder.
-echo Usage: build_windows.bat [--dir]
+echo Usage: .\build_windows.bat [--dir^|--onefile]
 endlocal
+exit /b 0
+
+:run_build
+if /I "%1"=="dir" (
+  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --name %NAME% "%ENTRY%"
+) else (
+  pyinstaller %COMMON_FLAGS% %DATA_FLAGS% --onefile --name %NAME% "%ENTRY%"
+)
+exit /b %errorlevel%

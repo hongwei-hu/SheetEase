@@ -8,7 +8,14 @@ from typing import Any, Callable, Dict, List, Optional
 from ..exceptions import UnknownCustomTypeError, CustomTypeParseError
 from ..utils.log import log_warn
 from ..utils.naming_utils import is_valid_csharp_identifier
-from ..utils.type_utils import parse_type_annotation, strip_type_constraints
+from ..utils.type_utils import (
+    NONNEGATIVE_FLOAT_TYPE_NAMES,
+    NONNEGATIVE_INT_TYPE_NAMES,
+    POSITIVE_FLOAT_TYPE_NAMES,
+    POSITIVE_INT_TYPE_NAMES,
+    parse_type_annotation,
+    strip_type_constraints,
+)
 from ..generation.enum_registry import get_enum_registry
 
 # 基本类型映射
@@ -27,7 +34,14 @@ PRIMITIVE_TYPE_MAPPING: Dict[str, Callable[[Any], Any]] = {
     "bool": _parse_bool,
     "str": str,
     "string": str,  # 兼容别名
+    "nnint": int,
+    "nnfloat": float,
+    "pint": int,
+    "pfloat": float,
 }
+
+NONNEGATIVE_PRIMITIVE_TYPES = NONNEGATIVE_INT_TYPE_NAMES | NONNEGATIVE_FLOAT_TYPE_NAMES
+POSITIVE_PRIMITIVE_TYPES = POSITIVE_INT_TYPE_NAMES | POSITIVE_FLOAT_TYPE_NAMES
 
 # ================= 自定义类型注册机制 =================
 class _CustomTypeHandler:
@@ -193,8 +207,24 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
         prefix += f"列{col} "
     if field:
         prefix += f"字段{field} "
+    if type_str in NONNEGATIVE_PRIMITIVE_TYPES:
+        try:
+            numeric_value = float(v)
+        except (TypeError, ValueError, OverflowError):
+            numeric_kind = "int" if type_str in NONNEGATIVE_INT_TYPE_NAMES else "float"
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# {numeric_kind}")
+        if numeric_value < 0:
+            raise ValueError(f"{prefix}值{raw!r}必须为非负数（>= 0）")
+    if type_str in POSITIVE_PRIMITIVE_TYPES:
+        try:
+            numeric_value = float(v)
+        except (TypeError, ValueError, OverflowError):
+            numeric_kind = "int" if type_str in POSITIVE_INT_TYPE_NAMES else "float"
+            raise ValueError(f"{prefix}值{raw!r}无法转换为C# {numeric_kind}")
+        if numeric_value <= 0:
+            raise ValueError(f"{prefix}值{raw!r}必须为正数（> 0）")
     # int: [-2^31, 2^31-1]
-    if type_str == "int":
+    if type_str in ("int", *NONNEGATIVE_INT_TYPE_NAMES, *POSITIVE_INT_TYPE_NAMES):
         try:
             ival = int(v)
             if ival < -2147483648 or ival > 2147483647:
@@ -205,7 +235,7 @@ def _check_csharp_primitive_range(type_str: str, v: Any, raw: Any = None, field:
         except Exception:
             raise ValueError(f"{prefix}值{raw!r}无法转换为C# int")
     # float: [-3.4028235e38, 3.4028235e38]
-    elif type_str == "float":
+    elif type_str in ("float", *NONNEGATIVE_FLOAT_TYPE_NAMES, *POSITIVE_FLOAT_TYPE_NAMES):
         try:
             fval = float(v)
             if abs(fval) > 3.4028235e38:

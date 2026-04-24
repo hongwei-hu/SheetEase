@@ -13,6 +13,10 @@ class TestValidateTypeAnnotation:
         assert validate_type_annotation("string") == (True, "")
         assert validate_type_annotation("float") == (True, "")
         assert validate_type_annotation("bool") == (True, "")
+        assert validate_type_annotation("nnint") == (True, "")
+        assert validate_type_annotation("nnfloat") == (True, "")
+        assert validate_type_annotation("pint") == (True, "")
+        assert validate_type_annotation("pfloat") == (True, "")
     
     def test_valid_list_types(self):
         """测试有效的列表类型"""
@@ -75,6 +79,22 @@ class TestParseTypeAnnotation:
         kind, base = parse_type_annotation("string")
         assert kind == "scalar"
         assert base == "string"
+
+        kind, base = parse_type_annotation("nnint")
+        assert kind == "scalar"
+        assert base == "int"
+
+        kind, base = parse_type_annotation("nnfloat")
+        assert kind == "scalar"
+        assert base == "float"
+
+        kind, base = parse_type_annotation("pint")
+        assert kind == "scalar"
+        assert base == "int"
+
+        kind, base = parse_type_annotation("pfloat")
+        assert kind == "scalar"
+        assert base == "float"
     
     def test_parse_list(self):
         """测试解析列表类型"""
@@ -107,6 +127,10 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("int") == "int"
         assert convert_type_to_csharp("string") == "string"
         assert convert_type_to_csharp("float") == "float"
+        assert convert_type_to_csharp("nnint") == "int"
+        assert convert_type_to_csharp("nnfloat") == "float"
+        assert convert_type_to_csharp("pint") == "int"
+        assert convert_type_to_csharp("pfloat") == "float"
     
     def test_convert_list(self):
         """测试转换列表类型"""

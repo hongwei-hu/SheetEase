@@ -12,6 +12,11 @@ ENUM_TYPE_RE = re.compile(r"^enum\s*\(\s*([^)]+)\s*\)$", re.IGNORECASE)
 LIST_TYPE_RE = re.compile(r"^list\s*\(\s*(.+)\s*\)$", re.IGNORECASE)
 DICT_TYPE_RE = re.compile(r"^dict\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", re.IGNORECASE)
 
+NONNEGATIVE_INT_TYPE_NAMES = {"nnint"}
+NONNEGATIVE_FLOAT_TYPE_NAMES = {"nnfloat"}
+POSITIVE_INT_TYPE_NAMES = {"pint"}
+POSITIVE_FLOAT_TYPE_NAMES = {"pfloat"}
+
 
 def strip_type_constraints(type_str: str) -> str:
     """
@@ -42,6 +47,10 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
         s = s.strip().lower()
         if s in ("int", "int32", "integer"): return "int"
         if s in ("float", "double"): return "float"
+        if s in NONNEGATIVE_INT_TYPE_NAMES: return "int"
+        if s in NONNEGATIVE_FLOAT_TYPE_NAMES: return "float"
+        if s in POSITIVE_INT_TYPE_NAMES: return "int"
+        if s in POSITIVE_FLOAT_TYPE_NAMES: return "float"
         if s in ("str", "string"): return "string"
         if s in ("bool", "boolean"): return "bool"
         return s
@@ -129,6 +138,10 @@ def convert_type_to_csharp(type_str: str) -> str:
     import re
     type_str = strip_type_constraints((type_str or "").strip())
     
+    normalized_scalar = parse_type_annotation(type_str)
+    if normalized_scalar[0] == "scalar" and normalized_scalar[1] in ("int", "float", "string", "bool"):
+        return normalized_scalar[1]
+
     # 处理 enum(枚举名)
     enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", type_str, re.IGNORECASE)
     if enum_match:

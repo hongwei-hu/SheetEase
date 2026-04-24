@@ -85,7 +85,11 @@
 | 类型写法 | C# 映射 | 说明 |
 |---------|---------|------|
 | `int` / `int32` / `integer` | `int` | 整数 |
+| `nnint` | `int` | 非负整数，等价于内置 `int{nonnegative}` |
+| `pint` | `int` | 正整数，等价于内置 `int{positive}` |
 | `float` / `double` | `float` | 浮点数 |
+| `nnfloat` | `float` | 非负浮点数，等价于内置 `float{nonnegative}` |
+| `pfloat` | `float` | 正浮点数，等价于内置 `float{positive}` |
 | `string` / `str` | `string` | 字符串 |
 | `bool` / `boolean` | `bool` | 布尔值（填 `true`/`1` 或 `false`/`0`） |
 
@@ -288,6 +292,8 @@ fire:1.5,water:0.8
 | `nonzero` | 布尔 | 不允许为 0 | `int{nonzero}` |
 | `positive` | 布尔 | 必须为正数（> 0）| `int{positive}` |
 | `nonnegative` | 布尔 | 必须为非负数（>= 0）| `int{nonnegative}` |
+
+如果这个约束是字段的固定语义，也可以直接把类型写成 `nnint`、`nnfloat`、`pint` 或 `pfloat`，不再需要重复追加对应的 `{nonnegative}` / `{positive}`。
 
 **组合示例：**
 

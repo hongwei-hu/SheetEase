@@ -85,7 +85,7 @@ def check_interface_field_types(sheet_name: str, properties_dict: Dict[str, str]
         with open(interface_path, encoding="utf-8") as f:
             content = f.read()
     # 匹配如 int id { get; } 或 string name { get; }
-    pattern = re.compile(r"(int|string|float|double|bool)\s+(\w+)\s*{[^{]*?get;[^{]*?}")
+    pattern = re.compile(r"(int|string|float|double|bool|nnint|nnfloat|pint|pfloat)\s+(\w+)\s*{[^{]*?get;[^{]*?}", re.IGNORECASE)
     interface_fields = {m.group(2): m.group(1).lower() for m in pattern.finditer(content)} if content else {}
     if not interface_fields:
         # 没有在接口中解析到属性时，不中断；对 id 仍做内置期望检查
