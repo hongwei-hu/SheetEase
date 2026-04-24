@@ -53,6 +53,12 @@ from ..validation.constraint_checker import (
     parse_constraint_str,
     check_constraints,
 )
+from ..suggestions import (
+    ENABLE_PRACTICE_SUGGESTIONS,
+    NumericSuggestionCollector,
+    SuggestionEngine,
+    emit_suggestion_logs,
+)
 
 # 新增：可选字段统计开关（保持功能不变，默认打印一次汇总；若不需要可改为 False）
 _PRINT_FIELD_SUMMARY = True
@@ -203,6 +209,9 @@ class WorksheetData:
                 f"[{self.name}] 字段统计: 总列={len(self.field_names)} 可用列(含主键)={len(self.field_names)} "
                 f"ignore列={self._ignore_count} required列={len(self._required_fields)}"
             )
+
+        # 建议日志仅需每张表输出一次（避免同时导出到多个目录时重复打印）。
+        self._practice_suggestions_logged = False
 
         # 新增：自动检测接口字段类型，类型不符时警告并要求用户确认
         props = self._get_properties_dict()
@@ -356,6 +365,9 @@ class WorksheetData:
         record_check_interval = 50  # 每多少条记录进行一次轻量检查（默认每50条）
         oversized_record_warned = False
 
+        suggestion_collector = NumericSuggestionCollector() if ENABLE_PRACTICE_SUGGESTIONS else None
+        suggestion_engine = SuggestionEngine() if ENABLE_PRACTICE_SUGGESTIONS else None
+
         for row_idx, row in enumerate(self.row_data):
             if not row:
                 continue
@@ -431,6 +443,9 @@ class WorksheetData:
 
                 row_obj[data_name] = value
 
+                if suggestion_collector is not None:
+                    suggestion_collector.observe(col_index, data_name, type_str, value)
+
                 # 收集引用检查
                 if col_index in self._ref_specs:
                     ref_sheet, ref_field = self._ref_specs[col_index]
@@ -473,6 +488,15 @@ class WorksheetData:
             indent=4,
             sort_keys=JSON_SORT_KEYS
         )
+
+        if (
+            suggestion_collector is not None
+            and suggestion_engine is not None
+            and not self._practice_suggestions_logged
+        ):
+            suggestions = suggestion_engine.run(self.name, suggestion_collector)
+            emit_suggestion_logs(suggestions)
+            self._practice_suggestions_logged = True
 
         # 全量 JSON 大小检查
         try:
