@@ -22,6 +22,17 @@ class NumericFieldStats:
     positive_count: int = 0
     nonnegative_count: int = 0
     zero_count: int = 0
+    in_unit_interval_count: int = 0
+    has_min_zero_max_one_constraint: bool = False
+
+
+@dataclass
+class ListFieldStats:
+    field_name: str
+    declared_type: str
+    has_unique_constraint: bool
+    sample_count: int = 0
+    all_samples_unique_count: int = 0
 
 
 class NumericSuggestionCollector:
@@ -29,8 +40,19 @@ class NumericSuggestionCollector:
 
     def __init__(self) -> None:
         self._stats: Dict[int, NumericFieldStats] = {}
+        self._list_stats: Dict[int, ListFieldStats] = {}
 
     def observe(self, col_index: int, field_name: str, type_str: str, value: Any) -> None:
+        self._observe_numeric(col_index, field_name, type_str, value)
+        self._observe_list(col_index, field_name, type_str, value)
+
+    def get_numeric_stats(self) -> Iterable[NumericFieldStats]:
+        return self._stats.values()
+
+    def get_list_stats(self) -> Iterable[ListFieldStats]:
+        return self._list_stats.values()
+
+    def _observe_numeric(self, col_index: int, field_name: str, type_str: str, value: Any) -> None:
         stats = self._stats.get(col_index)
         if stats is None:
             stats = self._build_stats_if_eligible(field_name, type_str)
@@ -51,9 +73,31 @@ class NumericSuggestionCollector:
             stats.nonnegative_count += 1
         if numeric_value == 0:
             stats.zero_count += 1
+        if 0 <= numeric_value <= 1:
+            stats.in_unit_interval_count += 1
 
-    def get_numeric_stats(self) -> Iterable[NumericFieldStats]:
-        return self._stats.values()
+    def _observe_list(self, col_index: int, field_name: str, type_str: str, value: Any) -> None:
+        stats = self._list_stats.get(col_index)
+        if stats is None:
+            stats = self._build_list_stats_if_eligible(field_name, type_str)
+            if stats is None:
+                return
+            self._list_stats[col_index] = stats
+
+        if not isinstance(value, list):
+            return
+
+        stats.sample_count += 1
+        seen = set()
+        has_duplicate = False
+        for item in value:
+            marker = repr(item)
+            if marker in seen:
+                has_duplicate = True
+                break
+            seen.add(marker)
+        if not has_duplicate:
+            stats.all_samples_unique_count += 1
 
     @staticmethod
     def _build_stats_if_eligible(field_name: str, type_str: str) -> NumericFieldStats | None:
@@ -68,10 +112,34 @@ class NumericSuggestionCollector:
         if declared not in (_PLAIN_INT_DECLARED_TYPES | _PLAIN_FLOAT_DECLARED_TYPES):
             return None
 
+        has_min_zero_max_one = False
+        if "min" in constraints and "max" in constraints:
+            try:
+                has_min_zero_max_one = float(constraints["min"]) == 0 and float(constraints["max"]) == 1
+            except (TypeError, ValueError):
+                has_min_zero_max_one = False
+
         return NumericFieldStats(
             field_name=field_name,
             declared_type=declared,
             type_base=base,
             has_nonnegative_constraint=bool(constraints.get("nonnegative")),
             has_positive_constraint=bool(constraints.get("positive")),
+            has_min_zero_max_one_constraint=has_min_zero_max_one,
+        )
+
+    @staticmethod
+    def _build_list_stats_if_eligible(field_name: str, type_str: str) -> ListFieldStats | None:
+        pure_type, constraint_str = split_type_and_constraint_str(type_str)
+        declared = pure_type.strip().lower()
+        constraints = parse_constraint_str(constraint_str)
+
+        kind, _ = parse_type_annotation(type_str)
+        if kind != "list":
+            return None
+
+        return ListFieldStats(
+            field_name=field_name,
+            declared_type=declared,
+            has_unique_constraint=bool(constraints.get("unique")),
         )

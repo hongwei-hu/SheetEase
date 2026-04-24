@@ -1,11 +1,16 @@
 """Rule protocol for practice suggestions."""
 
-from typing import Iterable, Protocol
+from typing import Protocol
 
-from ..collectors import NumericFieldStats
+from ..collectors import NumericSuggestionCollector
 from ..models import PracticeSuggestion
+from .metadata import RuleMetadata
 
 
 class SuggestionRule(Protocol):
-    def evaluate(self, sheet_name: str, stats: Iterable[NumericFieldStats]) -> list[PracticeSuggestion]:
+    @property
+    def metadata(self) -> RuleMetadata:
+        ...
+
+    def evaluate(self, sheet_name: str, collector: NumericSuggestionCollector) -> list[PracticeSuggestion]:
         ...

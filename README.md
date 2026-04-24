@@ -69,6 +69,10 @@ ProjectFolder/          # C# 工程与导出示例
 
 - 导表时会根据当前字段值分布输出绿色建议日志（不影响导出结果）。
 - 首批规则：当标量 `int/float` 字段的有效值全部为正数或非负数时，建议使用 `pint/nnint/pfloat/nnfloat`。
+- 规则支持元数据格式（`rule_id/name/category/target/output/description`），便于后续扩展和筛选。
+- 本轮新增两条收束规则：
+  - `numeric.float.probability.constraint`：`float` 全量样本位于 `[0,1]` 时，建议使用 `float{min:0,max:1}`
+  - `list.unique.constraint`：`list(...)` 全量样本均无重复时，建议追加 `{unique}` 约束
 - 建议日志仅作为实践参考，不会自动修改类型，也不会中断导表。
 
 ---

@@ -495,6 +495,22 @@ custom_type_registry.register("Game.Vector2Int", parse_my_type)
 
 > 说明：仅对普通 `int/float` 标量字段给出建议；已经使用 `pint/nnint/pfloat/nnfloat` 或显式约束 `positive/nonnegative` 的字段不会重复提示。
 
+### 规则元数据格式（可扩展）
+
+建议规则统一使用如下元数据字段，便于后续按类别扩展、过滤或配置开关：
+
+- `rule_id`：规则唯一标识
+- `name`：规则名称
+- `category`：规则分类（如 `constraint-tightening`）
+- `target`：适用目标（如 `scalar:float`、`list:*`）
+- `output`：输出类型（如 `constraint`、`type`）
+- `description`：规则说明
+
+### 本轮新增的两条收束规则
+
+- `numeric.float.probability.constraint`：当 `float` 字段所有有效值都在 `[0,1]` 区间时，建议配置为 `float{min:0,max:1}`
+- `list.unique.constraint`：当 `list(...)` 字段样本中始终无重复元素时，建议在类型上追加 `{unique}`
+
 ---
 
 > 如有更多问题，请查阅项目 README 或提 Issue。
