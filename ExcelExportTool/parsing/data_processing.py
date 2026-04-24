@@ -158,6 +158,14 @@ def convert_to_type(
             return _convert_list_enum(enum_name, value, field, sheet, row, col)
         # 普通list
         return _convert_list(normalized_type_str, value, field, sheet, row, col)
+    elif kind == "unilist" and base_type and base_type.startswith("enum("):
+        # unilist(enum(枚举名))：需要唯一性检查的列表
+        enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
+        if enum_match:
+            enum_name = enum_match.group(1).strip()
+            return _convert_list_enum(enum_name, value, field, sheet, row, col)
+        # 普通unilist
+        return _convert_list(normalized_type_str, value, field, sheet, row, col)
     elif kind == "dict" and base_type and base_type.startswith("enum("):
         # dict(..., enum(枚举名))
         enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
@@ -170,10 +178,10 @@ def convert_to_type(
     # 基础类型
     if normalized_type_str in PRIMITIVE_TYPE_MAPPING:
         return _convert_primitive(normalized_type_str, value, field, sheet, row, col)
-    # 容器（普通list/dict）
+    # 容器（普通list/dict/unilist）
     if normalized_type_str.startswith("dict"):
         return _convert_dict(normalized_type_str, value, field, sheet, row, col)
-    if normalized_type_str.startswith("list"):
+    if normalized_type_str.startswith("list") or normalized_type_str.startswith("unilist"):
         return _convert_list(normalized_type_str, value, field, sheet, row, col)
     # 自定义(简单策略: 至少包含一个 . 视为全限定类型)
     if "." in normalized_type_str:
@@ -279,7 +287,7 @@ def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = Non
 
 
 def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> List[Any]:
-    """转换为列表类型，例如 list(int)，并递归做C#范围检查"""
+    """转换为列表类型，例如 list(int)，unilist(int)（需唯一性检查），并递归做C#范围检查"""
     result: List[Any] = []
     type_match = re.search(r"\((.*)\)", type_str)
     if not type_match or value is None:
@@ -291,13 +299,31 @@ def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = Non
             v = v.strip()
             if v:
                 result.append(_convert_with_check(element_type_str, v, field=field, sheet=sheet, row=row, col=col))
-        return result
-    # 单元素
-    try:
-        result.append(_convert_with_check(element_type_str, value, field=field, sheet=sheet, row=row, col=col))
-        return result
-    except Exception as e:
-        raise ValueError(f"无法将 {value} 转换为 {type_str}: {e}")
+    else:
+        # 单元素
+        try:
+            result.append(_convert_with_check(element_type_str, value, field=field, sheet=sheet, row=row, col=col))
+        except Exception as e:
+            raise ValueError(f"无法将 {value} 转换为 {type_str}: {e}")
+    
+    # 对 unilist 进行唯一性检查
+    if type_str.lower().startswith("unilist"):
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        
+        seen = set()
+        for item in result:
+            marker = repr(item)
+            if marker in seen:
+                raise ValueError(f"{prefix}列表中存在重复元素: {item}")
+            seen.add(marker)
+    
+    return result
 
 
 def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> int:

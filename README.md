@@ -49,11 +49,17 @@ ProjectFolder/          # C# 工程与导出示例
 
 ## 数据类型与自定义类型
 
-- 基础类型：`int`、`float`、`string/str`、`bool`、`nnint`、`nnfloat`、`pint`、`pfloat`
-- 容器类型：`list(...)`、`dict(...)`
+- 基础标量类型：`int`、`float`、`string/str`、`bool`、`nnint`、`nnfloat`、`pint`、`pfloat`
+- 容器类型：`list(...)`、`unilist(...)`、`dict(...)`
 - **自定义类型**：
   - **通用回退**（默认）：Excel 类型行填写全限定名，单元格用 `#` 分隔，导出为 `{ "__type": ..., "segments": [...] }`，C# 端自定义解析。
   - **专用解析器**（可选）：在 `data_processing.py` 注册解析器，导出结构更语义化，C# 端可直接映射。
+
+### 容器类型详说
+
+- `list(...)`：普通列表，允许重复元素。例：`list(int)`、`list(string)`
+- `unilist(...)`：唯一性列表，确保列表中所有元素互不重复。如有重复元素则导出失败。例：`unilist(int)`、`unilist(string)`
+- `dict(...)`：字典/映射类型。例：`dict(int,string)`、`dict(string,int)`
 
 ---
 
@@ -70,9 +76,9 @@ ProjectFolder/          # C# 工程与导出示例
 - 导表时会根据当前字段值分布输出绿色建议日志（不影响导出结果）。
 - 首批规则：当标量 `int/float` 字段的有效值全部为正数或非负数时，建议使用 `pint/nnint/pfloat/nnfloat`。
 - 规则支持元数据格式（`rule_id/name/category/target/output/description`），便于后续扩展和筛选。
-- 本轮新增两条收束规则：
+- 本轮新增约束规则：
   - `numeric.float.probability.constraint`：`float` 全量样本位于 `[0,1]` 时，建议使用 `float{min:0,max:1}`
-  - `list.unique.constraint`：`list(...)` 全量样本均无重复时，建议追加 `{unique}` 约束
+- 关于列表唯一性：如果需要确保列表元素不重复，请直接使用 `unilist(...)` 类型而不是 `list(...){unique}` 约束。`unilist` 是专门为此设计的基础类型，导出时会严格检查重复元素。
 - 建议日志仅作为实践参考，不会自动修改类型，也不会中断导表。
 
 ---

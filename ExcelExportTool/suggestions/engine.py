@@ -5,7 +5,6 @@ from typing import Iterable
 from .collectors import NumericSuggestionCollector
 from .models import PracticeSuggestion
 from .rules.base import SuggestionRule
-from .rules.list_unique_constraint_rule import ListUniqueConstraintRule
 from .rules.numeric_type_suggestion_rule import NumericTypeSuggestionRule
 from .rules.probability_float_constraint_rule import ProbabilityFloatConstraintRule
 
@@ -15,7 +14,7 @@ class SuggestionEngine:
         self._rules = list(rules) if rules is not None else [
             NumericTypeSuggestionRule(),
             ProbabilityFloatConstraintRule(),
-            ListUniqueConstraintRule(),
+            # ListUniqueConstraintRule 已移除：list 的唯一性检查现由 unilist 类型直接实现
         ]
 
     def run(self, sheet_name: str, collector: NumericSuggestionCollector) -> list[PracticeSuggestion]:

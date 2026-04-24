@@ -99,6 +99,43 @@ class TestConvertListTypes:
         assert result == []
 
 
+class TestConvertUnilistTypes:
+    """测试唯一性列表类型转换"""
+    
+    def test_convert_unilist_int(self):
+        """测试int唯一列表转换"""
+        result = convert_to_type("unilist(int)", "1,2,3")
+        assert result == [1, 2, 3]
+    
+    def test_convert_unilist_string(self):
+        """测试string唯一列表转换"""
+        result = convert_to_type("unilist(string)", "a,b,c")
+        assert result == ["a", "b", "c"]
+    
+    def test_convert_empty_unilist(self):
+        """测试空唯一列表"""
+        result = convert_to_type("unilist(int)", None)
+        assert result == []
+        
+        result = convert_to_type("unilist(int)", "")
+        assert result == []
+    
+    def test_unilist_rejects_duplicates(self):
+        """测试唯一列表会拒绝重复元素"""
+        with pytest.raises(ValueError, match="重复元素"):
+            convert_to_type("unilist(int)", "1,2,2,3")
+    
+    def test_unilist_rejects_duplicates_string(self):
+        """测试唯一列表会拒绝字符串重复"""
+        with pytest.raises(ValueError, match="重复元素"):
+            convert_to_type("unilist(string)", "a,b,a")
+    
+    def test_unilist_with_constraints(self):
+        """测试带约束的唯一列表"""
+        result = convert_to_type("unilist(int){nonempty}", "1,2,3")
+        assert result == [1, 2, 3]
+
+
 class TestConvertDictTypes:
     """测试字典类型转换"""
     

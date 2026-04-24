@@ -16,6 +16,7 @@ NONNEGATIVE_INT_TYPE_NAMES = {"nnint"}
 NONNEGATIVE_FLOAT_TYPE_NAMES = {"nnfloat"}
 POSITIVE_INT_TYPE_NAMES = {"pint"}
 POSITIVE_FLOAT_TYPE_NAMES = {"pfloat"}
+UNILIST_TYPE_NAMES = {"unilist"}
 
 
 def strip_type_constraints(type_str: str) -> str:
@@ -39,7 +40,7 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
 
     Returns:
         (类型种类, 基础类型或枚举名)
-        类型种类: "scalar", "list", "dict", "enum"
+        类型种类: "scalar", "list", "dict", "enum", "unilist"
     """
     t = strip_type_constraints((type_str or "").strip())
 
@@ -60,6 +61,16 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
     if enum_match:
         enum_name = enum_match.group(1).strip()
         return "enum", enum_name
+
+    # 检查是否是 unilist(...)（需要唯一性检查的列表）
+    unilist_match = re.match(r"^unilist\s*\(\s*(.+)\s*\)$", t, re.IGNORECASE)
+    if unilist_match:
+        inner = unilist_match.group(1).strip()
+        inner_enum_match = ENUM_TYPE_RE.match(inner)
+        if inner_enum_match:
+            enum_name = inner_enum_match.group(1).strip()
+            return "unilist", f"enum({enum_name})"
+        return "unilist", base_norm(inner)
 
     # 检查是否是 list(enum(枚举名))
     list_match = LIST_TYPE_RE.match(t)
@@ -133,7 +144,7 @@ def validate_type_annotation(type_str: str) -> Tuple[bool, str]:
 def convert_type_to_csharp(type_str: str) -> str:
     """
     Convert a type annotation to C# representation.
-    Supports: list, dict, enum(EnumName)
+    Supports: list, unilist, dict, enum(EnumName)
     """
     import re
     type_str = strip_type_constraints((type_str or "").strip())
@@ -148,8 +159,8 @@ def convert_type_to_csharp(type_str: str) -> str:
         enum_name = enum_match.group(1).strip()
         return enum_name  # 直接返回枚举类型名
     
-    # 处理 list(enum(枚举名))
-    list_enum_match = re.match(r"^list\s*\(\s*enum\s*\(\s*([^)]+)\s*\)\s*\)$", type_str, re.IGNORECASE)
+    # 处理 list(enum(枚举名)) 和 unilist(enum(枚举名))
+    list_enum_match = re.match(r"^(?:list|unilist)\s*\(\s*enum\s*\(\s*([^)]+)\s*\)\s*\)$", type_str, re.IGNORECASE)
     if list_enum_match:
         enum_name = list_enum_match.group(1).strip()
         return f"List<{enum_name}>"
@@ -163,8 +174,8 @@ def convert_type_to_csharp(type_str: str) -> str:
         key_cs = convert_type_to_csharp(key_type) if key_type not in ("int", "string", "float", "bool") else key_type
         return f"Dictionary<{key_cs}, {enum_name}>"
     
-    # 原有的处理逻辑
-    type_mappings = {"list": "List", "dict": "Dictionary"}
-    for key, value in type_mappings.items():
-        type_str = type_str.replace(key, value)
+    # 原有的处理逻辑：unilist(...) 转为 List<...>
+    type_str = type_str.replace("unilist", "list")
+    type_str = type_str.replace("list", "List")
+    type_str = type_str.replace("dict", "Dictionary")
     return type_str.replace("(", "<").replace(")", ">")

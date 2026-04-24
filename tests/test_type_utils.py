@@ -23,6 +23,9 @@ class TestValidateTypeAnnotation:
         assert validate_type_annotation("list(int)") == (True, "")
         assert validate_type_annotation("list(string)") == (True, "")
         assert validate_type_annotation("list(list(int))") == (True, "")
+        assert validate_type_annotation("unilist(int)") == (True, "")
+        assert validate_type_annotation("unilist(string)") == (True, "")
+        assert validate_type_annotation("unilist(enum(TestEnum))") == (True, "")
     
     def test_valid_dict_types(self):
         """测试有效的字典类型"""
@@ -106,6 +109,20 @@ class TestParseTypeAnnotation:
         assert kind == "list"
         assert base == "string"
     
+    def test_parse_unilist(self):
+        """测试解析唯一性列表类型"""
+        kind, base = parse_type_annotation("unilist(int)")
+        assert kind == "unilist"
+        assert base == "int"
+        
+        kind, base = parse_type_annotation("unilist(string)")
+        assert kind == "unilist"
+        assert base == "string"
+        
+        kind, base = parse_type_annotation("unilist(enum(TestEnum))")
+        assert kind == "unilist"
+        assert base == "enum(TestEnum)"
+    
     def test_parse_enum(self):
         """测试解析枚举类型"""
         kind, base = parse_type_annotation("enum(TestEnum)")
@@ -137,6 +154,12 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("list(int)") == "List<int>"
         assert convert_type_to_csharp("list(string)") == "List<string>"
     
+    def test_convert_unilist(self):
+        """测试转换唯一性列表类型"""
+        assert convert_type_to_csharp("unilist(int)") == "List<int>"
+        assert convert_type_to_csharp("unilist(string)") == "List<string>"
+        assert convert_type_to_csharp("unilist(enum(TestEnum))") == "List<TestEnum>"
+    
     def test_convert_enum(self):
         """测试转换枚举类型"""
         assert convert_type_to_csharp("enum(TestEnum)") == "TestEnum"
@@ -155,6 +178,7 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("int{min:1,max:5}") == "int"
         assert convert_type_to_csharp("string{nonempty,maxlen:32}") == "string"
         assert convert_type_to_csharp("list(int){nonempty,unique}") == "List<int>"
+        assert convert_type_to_csharp("unilist(int){nonempty}") == "List<int>"
         assert convert_type_to_csharp("dict(string,int){minsize:1}") == "Dictionary<string,int>"
         assert convert_type_to_csharp("enum(Rarity){nonempty}") == "Rarity"
 

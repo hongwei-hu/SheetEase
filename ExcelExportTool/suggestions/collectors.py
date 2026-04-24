@@ -44,7 +44,8 @@ class NumericSuggestionCollector:
 
     def observe(self, col_index: int, field_name: str, type_str: str, value: Any) -> None:
         self._observe_numeric(col_index, field_name, type_str, value)
-        self._observe_list(col_index, field_name, type_str, value)
+        # list 的唯一性检查现由 unilist 类型直接实现，不再需要建议系统检测
+        # self._observe_list(col_index, field_name, type_str, value)
 
     def get_numeric_stats(self) -> Iterable[NumericFieldStats]:
         return self._stats.values()
