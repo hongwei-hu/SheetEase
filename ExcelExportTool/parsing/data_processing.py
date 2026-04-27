@@ -379,8 +379,9 @@ def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = No
     # 获取枚举项名称（区分大小写）
     item_name = str(value).strip()
     
-    # 验证枚举项名称格式（大写驼峰式）
-    if not enum_registry.validate_enum_item_name(item_name):
+    # 根据枚举定义验证枚举项命名：手工枚举默认严格，Keys 枚举可放宽
+    require_pascal_case = enum_registry.enum_requires_pascal_case_items(enum_name)
+    if not enum_registry.validate_enum_item_name(item_name, require_pascal_case=require_pascal_case):
         prefix = f"[{sheet}] " if sheet else ""
         if row is not None:
             prefix += f"行{row} "
@@ -388,8 +389,9 @@ def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = No
             prefix += f"列{col} "
         if field:
             prefix += f"字段{field} "
+        rule_desc = "必须为合法C#标识符且以大写字母开头（大写驼峰式）" if require_pascal_case else "必须为合法C#标识符"
         raise ExportError(
-            f"{prefix}枚举项名称 '{item_name}' 不符合C#命名规范（必须大写驼峰式）。"
+            f"{prefix}枚举项名称 '{item_name}' 不符合C#命名规范（{rule_desc}）。"
             f"枚举类型: {enum_name}"
         )
     

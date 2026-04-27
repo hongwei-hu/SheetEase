@@ -19,6 +19,38 @@ from ..generation.enum_registry import get_enum_registry, reset_enum_registry
 from ..utils.naming_config import ENUM_KEYS_SUFFIX
 REPORT = None  # 报表文件输出已移除
 
+
+def _pick_primary_key_col_index(sheet) -> int:
+    """推断主键所在列索引（0-based），优先兼容当前模板的 B 列。"""
+    try:
+        field_row = sheet[5]  # 第5行：字段名行
+    except Exception:
+        field_row = []
+
+    def _has_value(cell) -> bool:
+        if cell is None:
+            return False
+        val = cell.value
+        if val is None:
+            return False
+        return str(val).strip() != ""
+
+    # 当前导表约定：数据从 B 列开始；若 B 列字段存在，优先选择 B 列。
+    if len(field_row) > 1 and _has_value(field_row[1]):
+        return 1
+    # 兼容旧模板：若 B 列不可用，回退到 A 列。
+    if len(field_row) > 0 and _has_value(field_row[0]):
+        return 0
+
+    # 兜底：尝试读取类型行。若 B 列有类型定义则使用 B。
+    try:
+        type_row = sheet[3]  # 第3行：类型行
+        if len(type_row) > 1 and _has_value(type_row[1]):
+            return 1
+    except Exception:
+        pass
+    return 0
+
 def process_excel_file(
     excel_path: Path,
     file_sheet_map: dict[str, str],
@@ -223,16 +255,23 @@ def batch_excel_to_json(
         
         # 方式1：检查主键是否为string类型（需要生成枚举）
         try:
-            # 读取类型行（第3行，索引从1开始）
-            if len(main_sheet[3]) > 0:
-                first_field_type = str(main_sheet[3][0].value).strip().lower() if main_sheet[3][0].value else ""
+            # 读取类型行（第3行），并按模板推断主键列
+            pk_col_index = _pick_primary_key_col_index(main_sheet)
+            if len(main_sheet[3]) > pk_col_index:
+                type_cell = main_sheet[3][pk_col_index]
+                first_field_type = str(type_cell.value).strip().lower() if type_cell.value else ""
                 if first_field_type in ("str", "string"):
                     # 需要生成枚举，收集枚举项（从第7行开始）
                     enum_type_name = f"{main_sheet.title}{ENUM_KEYS_SUFFIX}"
                     enum_items = {}
                     enum_remarks = []  # 收集注释（来自第1行备注列）
                     idx_val = 0
-                    for row in main_sheet.iter_rows(min_row=7, values_only=False):
+                    for row in main_sheet.iter_rows(
+                        min_row=7,
+                        min_col=pk_col_index + 1,
+                        max_col=pk_col_index + 1,
+                        values_only=False,
+                    ):
                         if not row or not row[0]:
                             continue
                         val = row[0].value
@@ -243,8 +282,8 @@ def batch_excel_to_json(
                             enum_items[val_str] = idx_val
                             # 收集注释：第1行（备注行）对应列的值
                             remark = None
-                            if len(main_sheet[1]) > 0:  # 第1行存在
-                                remark_cell = main_sheet[1][0]  # 第1行第1列（与数据行第1列对应）
+                            if len(main_sheet[1]) > pk_col_index:  # 第1行存在对应列
+                                remark_cell = main_sheet[1][pk_col_index]  # 与主键列对齐
                                 if remark_cell and remark_cell.value:
                                     remark = str(remark_cell.value).strip()
                                     if not remark:
@@ -256,18 +295,25 @@ def batch_excel_to_json(
                         # 验证枚举项名称格式
                         invalid_items = []
                         for item_name in enum_items.keys():
-                            if not enum_registry.validate_enum_item_name(item_name):
+                            if not enum_registry.validate_enum_item_name(item_name, require_pascal_case=False):
                                 invalid_items.append(item_name)
                         if invalid_items:
                             raise ExportError(
-                                f"枚举 {enum_type_name} (来自 {excel_path.name}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
-                                f"枚举项必须以大写字母开头（大写驼峰式）"
+                                f"枚举 {enum_type_name} (来自 {excel_path.name}) 包含不符合C#标识符规范的枚举项: {invalid_items}。"
+                                f"自动生成的 Keys 枚举允许小写/下划线，但仍必须是合法 C# 标识符"
                             )
                         # 注册枚举，记录来源信息
                         source_info = f"{excel_path.name} (主键为string类型)"
-                        enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
-                        enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
-                        log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name})")
+                        enum_registry.register_enum(
+                            enum_type_name,
+                            enum_items,
+                            "Data.TableScript",
+                            source_info,
+                            require_pascal_case_items=False,
+                        )
+                        # 自动 Keys 枚举保持原有导出策略：由 worksheet_data.generate_script 负责输出，
+                        # 第一阶段仅注册到运行时注册表，不再额外导出到 enum_output_folder，避免重复产物。
+                        log_info(f"收集枚举(仅注册，不导出文件): {enum_type_name} (来自 {excel_path.name})")
         except ExportError as e:
             # 枚举相关的错误直接抛出，中断导表
             log_error(f"枚举收集失败: {e}")

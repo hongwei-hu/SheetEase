@@ -2,6 +2,7 @@
 import pytest
 from ExcelExportTool.parsing.data_processing import convert_to_type, PRIMITIVE_TYPE_MAPPING
 from ExcelExportTool.exceptions import ExportError
+from ExcelExportTool.generation.enum_registry import get_enum_registry, reset_enum_registry
 
 
 class TestConvertPrimitiveTypes:
@@ -186,4 +187,28 @@ class TestConstraintAnnotatedTypeConversion:
     def test_unsupported_type_with_constraints_still_raises(self):
         with pytest.raises(ValueError, match=r"Unsupported data type"):
             convert_to_type("not_supported{min:1}", "1")
+
+
+class TestEnumNamingModes:
+    """测试：不同来源枚举的命名规则。"""
+
+    def test_auto_keys_enum_allows_snake_case_item_name(self):
+        reset_enum_registry()
+        reg = get_enum_registry()
+        reg.register_enum(
+            "CombatAttributeKeys",
+            {"current_hp": 1},
+            source="AutoKeys",
+            require_pascal_case_items=False,
+        )
+
+        assert convert_to_type("enum(CombatAttributeKeys)", "current_hp") == 1
+
+    def test_manual_enum_still_requires_pascal_case_item_name(self):
+        reset_enum_registry()
+        reg = get_enum_registry()
+        reg.register_enum("QualityType", {"Common": 0}, source="EnumSheet")
+
+        with pytest.raises(ExportError, match="大写字母开头"):
+            convert_to_type("enum(QualityType)", "common")
 

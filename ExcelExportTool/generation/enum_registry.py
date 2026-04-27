@@ -1,7 +1,7 @@
 # Author: huhongwei 306463233@qq.com
 # MIT License
 """枚举注册表：管理所有枚举定义，提供枚举验证和值转换功能"""
-from typing import Dict, Set, Optional, Tuple
+from typing import Dict, Set, Optional
 from ..utils.naming_utils import is_valid_csharp_identifier
 from ..utils.log import log_error
 from ..exceptions import ExportError
@@ -17,8 +17,17 @@ class EnumRegistry:
         self._enum_namespaces: Dict[str, str] = {}
         # 枚举名 -> 来源信息（用于错误提示）
         self._enum_sources: Dict[str, str] = {}
+        # 枚举名 -> 是否要求枚举项使用大写驼峰
+        self._enum_item_pascal_required: Dict[str, bool] = {}
     
-    def register_enum(self, enum_name: str, enum_items: Dict[str, int], namespace: str = "Data.TableScript", source: str = "") -> None:
+    def register_enum(
+        self,
+        enum_name: str,
+        enum_items: Dict[str, int],
+        namespace: str = "Data.TableScript",
+        source: str = "",
+        require_pascal_case_items: bool = True,
+    ) -> None:
         """
         注册一个枚举
         
@@ -59,6 +68,7 @@ class EnumRegistry:
         self._enums[enum_name] = enum_items.copy()
         self._enum_namespaces[enum_name] = namespace
         self._enum_sources[enum_name] = source
+        self._enum_item_pascal_required[enum_name] = require_pascal_case_items
     
     def has_enum(self, enum_name: str) -> bool:
         """检查枚举是否存在"""
@@ -112,9 +122,9 @@ class EnumRegistry:
             return False
         return item_name in self._enums[enum_name]
     
-    def validate_enum_item_name(self, item_name: str) -> bool:
+    def validate_enum_item_name(self, item_name: str, require_pascal_case: bool = True) -> bool:
         """
-        验证枚举项名称是否符合C#命名规范（大写驼峰式）
+        验证枚举项名称是否符合C#命名规范。
         
         Args:
             item_name: 枚举项名称
@@ -127,10 +137,14 @@ class EnumRegistry:
         # 必须符合C#标识符规范
         if not is_valid_csharp_identifier(item_name):
             return False
-        # 必须以大写字母开头（大写驼峰式）
-        if not item_name[0].isupper():
+        # 严格模式：必须以大写字母开头（大写驼峰式）
+        if require_pascal_case and not item_name[0].isupper():
             return False
         return True
+
+    def enum_requires_pascal_case_items(self, enum_name: str) -> bool:
+        """返回指定枚举是否要求枚举项使用大写驼峰。默认 True。"""
+        return self._enum_item_pascal_required.get(enum_name, True)
     
     def get_all_enum_names(self) -> Set[str]:
         """获取所有已注册的枚举名称"""

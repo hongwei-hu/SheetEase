@@ -43,3 +43,22 @@ def test_global_registry_reset():
     reset_enum_registry()
     reg2 = get_enum_registry()
     assert not reg2.has_enum("TmpEnum")
+
+
+def test_relaxed_enum_item_name_validation_for_auto_keys():
+    reg = EnumRegistry()
+    reg.register_enum(
+        "CombatAttributeKeys",
+        {"current_hp": 0},
+        source="AutoKeys",
+        require_pascal_case_items=False,
+    )
+    assert reg.enum_requires_pascal_case_items("CombatAttributeKeys") is False
+    assert reg.validate_enum_item_name("current_hp", require_pascal_case=False)
+
+
+def test_strict_enum_item_name_validation_for_manual_enum():
+    reg = EnumRegistry()
+    reg.register_enum("QualityType", {"Common": 0}, source="EnumSheet")
+    assert reg.enum_requires_pascal_case_items("QualityType") is True
+    assert not reg.validate_enum_item_name("common", require_pascal_case=True)
