@@ -7,6 +7,7 @@ import pytest
 
 from ExcelExportTool.core.worksheet_data import WorksheetData
 from ExcelExportTool.exceptions import ConstraintViolationError
+from ExcelExportTool.generation.enum_registry import get_enum_registry, reset_enum_registry
 
 
 def _set_row(ws, row_idx, values):
@@ -71,3 +72,26 @@ def test_default_value_applied_and_meta_tags(monkeypatch, tmp_path):
     content = json.loads(out_file.read_text(encoding="utf-8"))
     assert content["1"]["icon"] == "DefaultIcon"
     assert content["_meta"]["fields"]["icon"]["tags"] == ["asset:png"]
+
+
+def test_optional_enum_field_allows_empty_and_emits_nullable_type(monkeypatch, tmp_path):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    reset_enum_registry()
+    reg = get_enum_registry()
+    reg.register_enum("AnimSetKeys", {"StageA": 1}, source="AutoKeys", require_pascal_case_items=False)
+
+    ws = _build_min_sheet("Enemy")
+    _set_row(ws, 3, ["", "int", "enum(AnimSetKeys)"])
+    _set_row(ws, 4, ["", "", "optional"])
+    _set_row(ws, 7, ["", 1, None])
+
+    data = WorksheetData(ws)
+    props = data._get_properties_dict()
+    assert props["value"] == "AnimSetKeys?"
+
+    data.generate_json(str(tmp_path))
+    out_file = tmp_path / "EnemyConfig.json"
+    content = json.loads(out_file.read_text(encoding="utf-8"))
+    assert content["1"]["value"] is None

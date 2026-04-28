@@ -114,7 +114,8 @@ def convert_to_type(
     field: str | None = None,
     sheet: str | None = None,
     row: int | None = None,
-    col: int | None = None
+    col: int | None = None,
+    allow_empty: bool = False,
 ) -> Any:
     """
     根据类型字符串转换值，支持基础类型、list、dict、枚举和自定义全限定类型。
@@ -149,7 +150,7 @@ def convert_to_type(
     
     # 枚举类型处理
     if kind == "enum":
-        return _convert_enum(base_type, value, field, sheet, row, col)
+        return _convert_enum(base_type, value, field, sheet, row, col, allow_empty=allow_empty)
     elif kind == "list" and base_type and base_type.startswith("enum("):
         # list(enum(枚举名))
         enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", base_type, re.IGNORECASE)
@@ -326,7 +327,15 @@ def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = Non
     return result
 
 
-def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> int:
+def _convert_enum(
+    enum_name: str,
+    value: Any,
+    field: str = None,
+    sheet: str = None,
+    row: int = None,
+    col: int = None,
+    allow_empty: bool = False,
+) -> Optional[int]:
     """
     转换枚举类型：将枚举项名称转换为枚举值（整数）
     
@@ -365,6 +374,8 @@ def _convert_enum(enum_name: str, value: Any, field: str = None, sheet: str = No
     
     # 非嵌套枚举不允许空值
     if value is None or (isinstance(value, str) and value.strip() == ""):
+        if allow_empty:
+            return None
         prefix = f"[{sheet}] " if sheet else ""
         if row is not None:
             prefix += f"行{row} "

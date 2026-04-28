@@ -231,7 +231,13 @@ class WorksheetData:
         result = {}
         for i in self._iter_effective_field_indices():
             actual_name = self._actual_field_name(i)
-            result[actual_name] = convert_type_to_csharp(self.data_types[i])
+            cs_type = convert_type_to_csharp(self.data_types[i])
+            kind, _ = parse_type_annotation(self.data_types[i])
+            label = str(self.data_labels[i]).strip().lower() if self.data_labels[i] is not None else ""
+            # optional + enum(...)：允许空值并导出为可空枚举
+            if kind == "enum" and label == "optional" and not cs_type.endswith("?"):
+                cs_type = f"{cs_type}?"
+            result[actual_name] = cs_type
         return result
 
     def _get_property_remarks(self) -> Dict[str, str]:
@@ -422,9 +428,13 @@ class WorksheetData:
                     if default_value is None and self.data_labels[col_index] == "required":
                         required_missing_count += 1
                         raise RuntimeError(f"{data_name} required 但值为空且无默认值 (行{excel_row})")
-                    value = convert_to_type(type_str, default_value, data_name, self.name)
+                    label = str(self.data_labels[col_index]).strip().lower() if self.data_labels[col_index] is not None else ""
+                    allow_empty_enum = label == "optional"
+                    value = convert_to_type(type_str, default_value, data_name, self.name, allow_empty=allow_empty_enum)
                 else:
-                    value = convert_to_type(type_str, cell_value, data_name, self.name)
+                    label = str(self.data_labels[col_index]).strip().lower() if self.data_labels[col_index] is not None else ""
+                    allow_empty_enum = label == "optional"
+                    value = convert_to_type(type_str, cell_value, data_name, self.name, allow_empty=allow_empty_enum)
 
                 # 约束检查
                 if col_index in self._field_constraints:

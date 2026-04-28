@@ -212,3 +212,19 @@ class TestEnumNamingModes:
         with pytest.raises(ExportError, match="大写字母开头"):
             convert_to_type("enum(QualityType)", "common")
 
+    def test_optional_enum_allows_empty_when_allow_empty_true(self):
+        reset_enum_registry()
+        reg = get_enum_registry()
+        reg.register_enum("AnimSetKeys", {"StageA": 1}, source="AutoKeys", require_pascal_case_items=False)
+
+        assert convert_to_type("enum(AnimSetKeys)", None, allow_empty=True) is None
+        assert convert_to_type("enum(AnimSetKeys)", "", allow_empty=True) is None
+
+    def test_optional_enum_still_rejects_empty_without_allow_empty(self):
+        reset_enum_registry()
+        reg = get_enum_registry()
+        reg.register_enum("AnimSetKeys", {"StageA": 1}, source="AutoKeys", require_pascal_case_items=False)
+
+        with pytest.raises(ExportError, match="不允许为空值"):
+            convert_to_type("enum(AnimSetKeys)", None)
+
