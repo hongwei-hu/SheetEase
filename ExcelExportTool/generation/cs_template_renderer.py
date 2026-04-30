@@ -45,6 +45,15 @@ class CSharpEnumModel:
     members: List[CSharpEnumMemberModel]
 
 
+@dataclass(frozen=True)
+class CSharpScriptModel:
+    """IR: top-level C# script file descriptor."""
+
+    using_block: str
+    namespace_name: str
+    class_blocks: List[str]
+
+
 class TemplateRenderError(ExportError):
     def __init__(self, template_name: str, reason: str):
         super().__init__(f"模板渲染失败: {template_name} -> {reason}")
@@ -74,13 +83,10 @@ _INFO_CLASS_TEMPLATE = """{% if model.summary %}{{ model.summary }}
 _DATA_CLASS_TEMPLATE = """{% if model.summary %}{{ model.summary }}
 {% endif %}public class {{ model.class_name }} : {{ model.interface_name }}
 {
-{% if model.body_blocks %}
-{% for block in model.body_blocks %}	{{ block | replace('\\n', '\\n\\t') }}
-{% if not loop.last %}
-{% endif %}
-{% endfor %}
-{% else %}	
-{% endif %}
+{% if model.body_blocks %}{% for block in model.body_blocks %}	{{ block | replace('\\n', '\\n\\t') }}{% if not loop.last %}
+
+{% endif %}{% endfor %}{% else %}	
+{% endif -%}
 }"""
 
 _ENUM_TEMPLATE = """namespace {{ model.namespace_name }}
@@ -94,9 +100,9 @@ _ENUM_TEMPLATE = """namespace {{ model.namespace_name }}
 {% endfor %}	}
 }"""
 
-_SCRIPT_FILE_TEMPLATE = """{{ using_str }}namespace Data.TableScript
+_SCRIPT_FILE_TEMPLATE = """{{ model.using_block }}namespace {{ model.namespace_name }}
 {
-	{{ file_content | replace('\\n', '\\n\\t') }}
+    {{ model.class_blocks | join('\\n\\n') | replace('\\n', '\\n\\t') }}
 }"""
 
 
@@ -142,5 +148,5 @@ class CSharpTemplateRenderer:
     def render_class(self, model: CSharpClassModel) -> str:
         return self._render("class", _CLASS_TEMPLATE, model=model)
 
-    def render_script_file(self, using_str: str, file_content: str) -> str:
-        return self._render("script_file", _SCRIPT_FILE_TEMPLATE, using_str=using_str, file_content=file_content)
+    def render_script(self, model: CSharpScriptModel) -> str:
+        return self._render("script_file", _SCRIPT_FILE_TEMPLATE, model=model)

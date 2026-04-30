@@ -15,6 +15,7 @@ from .cs_template_renderer import (
     CSharpEnumMemberModel,
     CSharpClassModel,
     CSharpPropertyModel,
+    CSharpScriptModel,
 )
 
 # ================== 常量与内部配置（不改变原有输出格式） ==================
@@ -167,27 +168,47 @@ def generate_script_file(sheet_name: str,
     """
     生成主脚本文件：
     """
-    # 检查是否有枚举类型字段，如果有则添加using语句
-    has_enum = False
-    import re
-    for type_str in properties_dict.values():
-        # 检查是否是枚举类型
-        if re.search(r"enum\s*\(", type_str, re.IGNORECASE):
-            has_enum = True
-            break
-    
-    # 构建using语句
-    using_str = USING_NAMESPACE_STR
-    if has_enum:
-        using_str = "using System.Collections.Generic;\nusing Newtonsoft.Json;\nusing Data.TableScript;\n\n"
-    
-    info_class = f"{auto_generated_summary_string}\n{generate_info_class(sheet_name, properties_dict, property_remarks)}"
-    data_class = f"{generate_data_class(sheet_name, need_generate_keys, composite_keys, composite_multiplier)}"
-    # 两块之间保持一个空行
-    file_content = f"{info_class}\n\n{data_class}"
-    final_content = _get_renderer().render_script_file(using_str, file_content)
+    script_model = build_script_model(
+        sheet_name=sheet_name,
+        properties_dict=properties_dict,
+        property_remarks=property_remarks,
+        need_generate_keys=need_generate_keys,
+        composite_keys=composite_keys,
+        composite_multiplier=composite_multiplier,
+    )
+    final_content = _get_renderer().render_script(script_model)
     cs_file_path = os.path.join(output_folder, f"{sheet_name}{file_suffix}.cs")
     write_to_file(final_content, cs_file_path)
+
+
+def _contains_enum_type(properties_dict: Dict[str, str]) -> bool:
+    for type_str in properties_dict.values():
+        if re.search(r"enum\s*\(", type_str, re.IGNORECASE):
+            return True
+    return False
+
+
+def _build_using_block(has_enum: bool) -> str:
+    if has_enum:
+        return "using System.Collections.Generic;\nusing Newtonsoft.Json;\nusing Data.TableScript;\n\n"
+    return USING_NAMESPACE_STR
+
+
+def build_script_model(sheet_name: str,
+                       properties_dict: Dict[str, str],
+                       property_remarks: Dict[str, str],
+                       need_generate_keys: bool,
+                       composite_keys: bool,
+                       composite_multiplier: int) -> CSharpScriptModel:
+    """构建脚本文件IR模型，作为第二阶段逐步结构化改造入口。"""
+    using_block = _build_using_block(_contains_enum_type(properties_dict))
+    info_class = f"{auto_generated_summary_string}\n{generate_info_class(sheet_name, properties_dict, property_remarks)}"
+    data_class = generate_data_class(sheet_name, need_generate_keys, composite_keys, composite_multiplier)
+    return CSharpScriptModel(
+        using_block=using_block,
+        namespace_name="Data.TableScript",
+        class_blocks=[info_class, data_class],
+    )
 
 def generate_info_class(class_name, properties_dict, property_remarks):
     """
