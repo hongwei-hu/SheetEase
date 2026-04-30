@@ -33,7 +33,9 @@ set COMMON_FLAGS=--noconsole --clean --noconfirm ^
   --hidden-import ExcelExportTool.utils.naming_config ^
   --hidden-import ExcelExportTool.utils.naming_utils ^
   --hidden-import ExcelExportTool.utils.log ^
-  --hidden-import ExcelExportTool.exceptions
+  --hidden-import ExcelExportTool.exceptions ^
+  --hidden-import jinja2 ^
+  --hidden-import markupsafe
 
 REM Optionally include ProjectFolder as runtime data (for interface/type checks)
 set DATA_FLAGS=--add-data "ProjectFolder;ProjectFolder" ^

@@ -13,7 +13,7 @@
 - **高效集成**：C# 端自动生成访问类，O(1) 查询，支持多种查询方式。
 - **自定义类型**：支持“通用回退”与“专用解析器”两种模式，灵活适配业务。
 - **易用 GUI**：可视化路径选择、配置保存、实时日志，适合策划/程序协作。
-- **依赖极少**：仅需 Python 3.x 与 `openpyxl`，易于集成到现有项目。
+- **依赖极少**：仅需 Python 3.x 与 `openpyxl`、`jinja2`，易于集成到现有项目。
 
 ---
 
@@ -30,10 +30,10 @@ ProjectFolder/          # C# 工程与导出示例
 ## 快速上手
 
 1. **环境准备**  
-  安装 Python 3.x（建议 3.10+）与 `openpyxl`，并配置 `ExcelFolder/!【导表】.bat`（Excel 目录、工具目录、输出目录）。
+  安装 Python 3.x（建议 3.10+）与 `openpyxl`、`jinja2`，并配置 `ExcelFolder/!【导表】.bat`（Excel 目录、工具目录、输出目录）。
 
    ```powershell
-   pip install openpyxl
+  pip install openpyxl jinja2
    ```
 
 1. **Excel 规范**  
@@ -218,7 +218,7 @@ A lightweight, low-dependency, and extensible Excel → JSON + C# exporter, desi
 - **Efficient integration**: Auto-generated C# accessors, O(1) queries, multiple query helpers.
 - **Custom types**: Supports both generic fallback and dedicated parser modes.
 - **User-friendly GUI**: Visual path selection, config saving, real-time logs.
-- **Minimal dependencies**: Requires Python 3.x and `openpyxl` only.
+- **Minimal dependencies**: Requires Python 3.x and `openpyxl`, `jinja2`.
 
 ---
 
@@ -235,10 +235,10 @@ ProjectFolder/          # C# project and export samples
 ## Quick Start
 
 1. **Requirements**  
-  Python 3.x (3.10+ recommended) and `openpyxl`. Edit `ExcelFolder/!【导表】.bat` to set Excel, tool, and output directories.
+  Python 3.x (3.10+ recommended) and `openpyxl`, `jinja2`. Edit `ExcelFolder/!【导表】.bat` to set Excel, tool, and output directories.
 
    ```powershell
-   pip install openpyxl
+  pip install openpyxl jinja2
    ```
 
 1. **Excel Convention**  
