@@ -112,6 +112,17 @@ def _build_minimal_workbook_for_enum_collection(path: Path, type_col: int) -> No
     wb.close()
 
 
+def _build_workbook_with_enum_sheet(path: Path, enum_rows: list[tuple]) -> None:
+    wb = openpyxl.Workbook()
+    wb.active.title = path.stem
+    enum_ws = wb.create_sheet("Enum-Quality")
+    enum_ws.append(["name", "value", "remark"])
+    for row in enum_rows:
+        enum_ws.append(list(row))
+    wb.save(path)
+    wb.close()
+
+
 def test_batch_excel_to_json_collects_keys_enum_from_column_b(monkeypatch, tmp_path):
     # 文件名首字母大写才会参与导表
     xlsx = tmp_path / "WeaponTemplate.xlsx"
@@ -188,3 +199,98 @@ def test_batch_excel_to_json_does_not_export_auto_keys_to_enum_folder(monkeypatc
     # 但运行时注册表仍可用（供 Enum(...) 字段校验与转换）
     reg = get_enum_registry()
     assert reg.has_enum("CombatAttributeKeys")
+
+
+def test_batch_excel_to_json_exports_enum_sheet_items_without_explicit_values(monkeypatch, tmp_path):
+    xlsx = tmp_path / "Item.xlsx"
+    _build_workbook_with_enum_sheet(
+        xlsx,
+        [
+            ("Common", None, "common"),
+            ("Rare", None, "rare"),
+        ],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+
+    exported = {}
+
+    def _fake_generate_enum_file(enum_type_name, enum_names, enum_values, remarks, name_space, output_folder):
+        exported["enum_type_name"] = enum_type_name
+        exported["enum_names"] = enum_names
+        exported["enum_values"] = enum_values
+        exported["remarks"] = remarks
+
+    monkeypatch.setattr(export_process, "generate_enum_file", _fake_generate_enum_file)
+
+    enum_out = tmp_path / "enum_out"
+    enum_out.mkdir(parents=True, exist_ok=True)
+
+    reset_enum_registry()
+    export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=None,
+        output_project_folder=None,
+        csfile_output_folder=None,
+        enum_output_folder=str(enum_out),
+        auto_cleanup=False,
+    )
+
+    assert exported["enum_type_name"] == "Quality"
+    assert exported["enum_names"] == ["Common", "Rare"]
+    assert exported["enum_values"] == [None, None]
+
+    reg = get_enum_registry()
+    assert reg.get_enum_value("Quality", "Common") == 0
+    assert reg.get_enum_value("Quality", "Rare") == 1
+
+
+def test_batch_excel_to_json_rejects_duplicate_manual_enum_values(monkeypatch, tmp_path):
+    xlsx = tmp_path / "Item.xlsx"
+    _build_workbook_with_enum_sheet(
+        xlsx,
+        [
+            ("Common", 1, None),
+            ("Rare", 1, None),
+        ],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    enum_out = tmp_path / "enum_out"
+    enum_out.mkdir(parents=True, exist_ok=True)
+
+    reset_enum_registry()
+    with pytest.raises(ExportError, match="duplicate enum value"):
+        export_process.batch_excel_to_json(
+            source_folder=str(tmp_path),
+            output_client_folder=None,
+            output_project_folder=None,
+            csfile_output_folder=None,
+            enum_output_folder=str(enum_out),
+            auto_cleanup=False,
+        )
+
+
+def test_batch_excel_to_json_rejects_invalid_manual_enum_values(monkeypatch, tmp_path):
+    xlsx = tmp_path / "Item.xlsx"
+    _build_workbook_with_enum_sheet(
+        xlsx,
+        [
+            ("Common", "1.5", None),
+        ],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    enum_out = tmp_path / "enum_out"
+    enum_out.mkdir(parents=True, exist_ok=True)
+
+    reset_enum_registry()
+    with pytest.raises(ExportError, match="invalid enum value"):
+        export_process.batch_excel_to_json(
+            source_folder=str(tmp_path),
+            output_client_folder=None,
+            output_project_folder=None,
+            csfile_output_folder=None,
+            enum_output_folder=str(enum_out),
+            auto_cleanup=False,
+        )

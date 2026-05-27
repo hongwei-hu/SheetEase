@@ -18,6 +18,57 @@ from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTy
 from ..generation.enum_registry import get_enum_registry, reset_enum_registry
 from ..utils.naming_config import ENUM_KEYS_SUFFIX
 REPORT = None  # 报表文件输出已移除
+CS_ENUM_INT_MIN = -2147483648
+CS_ENUM_INT_MAX = 2147483647
+
+
+def _parse_manual_enum_value(raw_value, excel_name: str, sheet_name: str, row_index: int, item_name: str) -> Optional[int]:
+    """Parse an optional C# enum int value from an Enum-* worksheet cell."""
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, str):
+        value_text = raw_value.strip()
+        if value_text == "":
+            return None
+        if not value_text.lstrip("+-").isdigit():
+            raise ExportError(
+                f"invalid enum value in {excel_name}/{sheet_name} row {row_index}: "
+                f"{item_name}={raw_value!r}. Expected an integer in C# int range."
+            )
+        value = int(value_text)
+    elif isinstance(raw_value, bool):
+        raise ExportError(
+            f"invalid enum value in {excel_name}/{sheet_name} row {row_index}: "
+            f"{item_name}={raw_value!r}. Boolean is not a valid C# enum integer value."
+        )
+    elif isinstance(raw_value, int):
+        value = raw_value
+    elif isinstance(raw_value, float) and raw_value.is_integer():
+        value = int(raw_value)
+    else:
+        raise ExportError(
+            f"invalid enum value in {excel_name}/{sheet_name} row {row_index}: "
+            f"{item_name}={raw_value!r}. Expected an integer in C# int range."
+        )
+
+    if value < CS_ENUM_INT_MIN or value > CS_ENUM_INT_MAX:
+        raise ExportError(
+            f"invalid enum value in {excel_name}/{sheet_name} row {row_index}: "
+            f"{item_name}={value}. C# enum values must be in int range "
+            f"[{CS_ENUM_INT_MIN}, {CS_ENUM_INT_MAX}]."
+        )
+    return value
+
+
+def _next_csharp_enum_value(previous_value: Optional[int], excel_name: str, sheet_name: str, row_index: int, item_name: str) -> int:
+    value = 0 if previous_value is None else previous_value + 1
+    if value < CS_ENUM_INT_MIN or value > CS_ENUM_INT_MAX:
+        raise ExportError(
+            f"invalid enum value in {excel_name}/{sheet_name} row {row_index}: "
+            f"{item_name} would be assigned {value} by C# default enum rules, "
+            f"outside int range [{CS_ENUM_INT_MIN}, {CS_ENUM_INT_MAX}]."
+        )
+    return value
 
 
 def _pick_primary_key_col_index(sheet) -> int:
@@ -329,28 +380,64 @@ def batch_excel_to_json(
                     if sheet.title.startswith(enum_tag):
                         enum_type_name = sheet.title.replace(enum_tag, "")
                         enum_items = {}
+                        enum_explicit_values = {}
                         enum_remarks = []  # 收集注释（来自第3列）
                         rows = list(sheet.iter_rows(min_row=2))
-                        for r in rows:
-                            if len(r) < 2:
+                        previous_effective_value = None
+                        seen_enum_values = {}
+                        for row_index, r in enumerate(rows, start=2):
+                            if len(r) < 1:
                                 continue
                             name = r[0].value
-                            val = r[1].value
-                            if name is None or val is None:
+                            val = r[1].value if len(r) > 1 else None
+                            if name is None:
                                 continue
                             name_str = str(name).strip()
-                            try:
-                                val_int = int(val)
-                                enum_items[name_str] = val_int
-                                # 收集注释：第3列（索引2）
-                                remark = None
-                                if len(r) > 2 and r[2].value:
-                                    remark = str(r[2].value).strip()
-                                    if not remark:
-                                        remark = None
-                                enum_remarks.append(remark)
-                            except (ValueError, TypeError):
-                                log_warn(f"{sheet.title} 枚举值非整数: {name}={val}")
+                            if not name_str:
+                                continue
+                            if name_str in enum_items:
+                                raise ExportError(
+                                    f"duplicate enum item in {excel_path.name}/{sheet.title} row {row_index}: "
+                                    f"{name_str}. C# enum member names must be unique."
+                                )
+
+                            explicit_value = _parse_manual_enum_value(
+                                val,
+                                excel_path.name,
+                                sheet.title,
+                                row_index,
+                                name_str,
+                            )
+                            effective_value = (
+                                explicit_value
+                                if explicit_value is not None
+                                else _next_csharp_enum_value(
+                                    previous_effective_value,
+                                    excel_path.name,
+                                    sheet.title,
+                                    row_index,
+                                    name_str,
+                                )
+                            )
+                            previous_effective_value = effective_value
+
+                            if effective_value in seen_enum_values:
+                                raise ExportError(
+                                    f"duplicate enum value in {excel_path.name}/{sheet.title} row {row_index}: "
+                                    f"{name_str}={effective_value} conflicts with "
+                                    f"{seen_enum_values[effective_value]}. Enum values must be unique."
+                                )
+                            seen_enum_values[effective_value] = name_str
+
+                            enum_items[name_str] = effective_value
+                            enum_explicit_values[name_str] = explicit_value
+                            # 收集注释：第3列（索引2）
+                            remark = None
+                            if len(r) > 2 and r[2].value:
+                                remark = str(r[2].value).strip()
+                                if not remark:
+                                    remark = None
+                            enum_remarks.append(remark)
                         
                         if enum_items:
                             # 验证枚举项名称格式
@@ -366,7 +453,7 @@ def batch_excel_to_json(
                             # 注册枚举，记录来源信息
                             source_info = f"{excel_path.name}/{sheet.title}"
                             enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
-                            enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
+                            enum_files_to_export.append((excel_path, enum_type_name, list(enum_explicit_values.items()), enum_remarks))
                             log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name}/{sheet.title})")
         except ExportError as e:
             # 枚举相关的错误直接抛出，中断导表

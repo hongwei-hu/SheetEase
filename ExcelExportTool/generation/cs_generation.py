@@ -101,7 +101,7 @@ def generate_enum_file_from_sheet(sheet, enum_tag, output_folder):
 
 def _build_enum_source(enum_type_name: str,
                        enum_names: List[str],
-                       enum_values: List[str],
+                       enum_values: List[Optional[int]],
                        remarks: Optional[List[str]],
                        name_space: str) -> str:
     """
@@ -110,7 +110,8 @@ def _build_enum_source(enum_type_name: str,
     members: List[CSharpEnumMemberModel] = []
     for i, key in enumerate(enum_names):
         summary = generate_xml_summary(str(remarks[i])) if remarks and remarks[i] else None
-        members.append(CSharpEnumMemberModel(name=key, value=str(enum_values[i]), summary=summary))
+        value = enum_values[i] if i < len(enum_values) else None
+        members.append(CSharpEnumMemberModel(name=key, value=None if value is None else str(value), summary=summary))
     model = CSharpEnumModel(
         namespace_name=name_space,
         enum_name=enum_type_name,

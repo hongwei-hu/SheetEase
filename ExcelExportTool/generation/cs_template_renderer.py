@@ -31,7 +31,7 @@ class CSharpEnumMemberModel:
     """IR: one enum member with optional xml summary."""
 
     name: str
-    value: str
+    value: Optional[str]
     summary: Optional[str]
 
 
@@ -95,7 +95,7 @@ _ENUM_TEMPLATE = """namespace {{ model.namespace_name }}
 	public enum {{ model.enum_name }}
 	{
 {% for member in model.members %}{% if member.summary %}		{{ member.summary }}
-{% endif %}		{{ member.name }} = {{ member.value }},
+{% endif %}		{{ member.name }}{% if member.value is not none %} = {{ member.value }}{% endif %},
 
 {% endfor %}	}
 }"""

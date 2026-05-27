@@ -28,6 +28,20 @@ def test_build_enum_source_renders_summary_and_members():
     assert "/// <summary> low quality </summary>" in content
 
 
+def test_build_enum_source_omits_assignment_for_members_without_explicit_value():
+    content = _build_enum_source(
+        enum_type_name="Quality",
+        enum_names=["Low", "High"],
+        enum_values=[None, 5],
+        remarks=[None, None],
+        name_space="ConfigDataName",
+    )
+
+    assert "Low," in content
+    assert "Low =" not in content
+    assert "High = 5" in content
+
+
 def test_generate_data_class_composite_multiplier_exists_when_needed():
     content = generate_data_class(
         sheet_name="Reward",
