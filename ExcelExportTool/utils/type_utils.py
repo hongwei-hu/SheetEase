@@ -18,6 +18,10 @@ POSITIVE_INT_TYPE_NAMES = {"pint"}
 POSITIVE_FLOAT_TYPE_NAMES = {"pfloat"}
 UNILIST_TYPE_NAMES = {"unilist"}
 
+TYPE_ALIASES = {
+    "i18n": "Localization.LocalizedStringRef",
+}
+
 
 def strip_type_constraints(type_str: str) -> str:
     """
@@ -34,6 +38,46 @@ def strip_type_constraints(type_str: str) -> str:
     return m.group(1).strip() if m else type_str.strip()
 
 
+def resolve_type_alias(type_str: str) -> str:
+    """展开内置类型别名，保留原类型约束块。"""
+    raw = (type_str or "").strip()
+    if not raw:
+        return raw
+
+    constraint = ""
+    m = _CONSTRAINT_BLOCK_RE.match(raw)
+    if m:
+        raw = m.group(1).strip()
+        constraint = m.group(2)
+
+    resolved = _resolve_type_alias_inner(raw)
+    return f"{resolved}{constraint}"
+
+
+def _resolve_type_alias_inner(type_str: str) -> str:
+    t = (type_str or "").strip()
+    if not t:
+        return t
+
+    alias = TYPE_ALIASES.get(t.lower())
+    if alias:
+        return alias
+
+    list_match = re.match(r"^(list|unilist)\s*\(\s*(.+)\s*\)$", t, re.IGNORECASE)
+    if list_match:
+        container = list_match.group(1).lower()
+        inner = _resolve_type_alias_inner(list_match.group(2).strip())
+        return f"{container}({inner})"
+
+    dict_match = DICT_TYPE_RE.match(t)
+    if dict_match:
+        key_type = _resolve_type_alias_inner(dict_match.group(1).strip())
+        value_type = _resolve_type_alias_inner(dict_match.group(2).strip())
+        return f"dict({key_type},{value_type})"
+
+    return t
+
+
 def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
     """
     解析类型注解（自动剥离末尾约束块 ``{...}``）。
@@ -42,19 +86,20 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
         (类型种类, 基础类型或枚举名)
         类型种类: "scalar", "list", "dict", "enum", "unilist"
     """
-    t = strip_type_constraints((type_str or "").strip())
+    t = strip_type_constraints(resolve_type_alias((type_str or "").strip()))
 
     def base_norm(s: str) -> str:
-        s = s.strip().lower()
-        if s in ("int", "int32", "integer"): return "int"
-        if s in ("float", "double"): return "float"
-        if s in NONNEGATIVE_INT_TYPE_NAMES: return "int"
-        if s in NONNEGATIVE_FLOAT_TYPE_NAMES: return "float"
-        if s in POSITIVE_INT_TYPE_NAMES: return "int"
-        if s in POSITIVE_FLOAT_TYPE_NAMES: return "float"
-        if s in ("str", "string"): return "string"
-        if s in ("bool", "boolean"): return "bool"
-        return s
+        raw = s.strip()
+        normalized = raw.lower()
+        if normalized in ("int", "int32", "integer"): return "int"
+        if normalized in ("float", "double"): return "float"
+        if normalized in NONNEGATIVE_INT_TYPE_NAMES: return "int"
+        if normalized in NONNEGATIVE_FLOAT_TYPE_NAMES: return "float"
+        if normalized in POSITIVE_INT_TYPE_NAMES: return "int"
+        if normalized in POSITIVE_FLOAT_TYPE_NAMES: return "float"
+        if normalized in ("str", "string"): return "string"
+        if normalized in ("bool", "boolean"): return "bool"
+        return raw
 
     # 检查是否是 enum(枚举名)
     enum_match = ENUM_TYPE_RE.match(t)
@@ -147,7 +192,7 @@ def convert_type_to_csharp(type_str: str) -> str:
     Supports: list, unilist, dict, enum(EnumName)
     """
     import re
-    type_str = strip_type_constraints((type_str or "").strip())
+    type_str = strip_type_constraints(resolve_type_alias((type_str or "").strip()))
     
     normalized_scalar = parse_type_annotation(type_str)
     if normalized_scalar[0] == "scalar" and normalized_scalar[1] in ("int", "float", "string", "bool"):

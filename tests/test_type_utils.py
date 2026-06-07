@@ -98,6 +98,10 @@ class TestParseTypeAnnotation:
         kind, base = parse_type_annotation("pfloat")
         assert kind == "scalar"
         assert base == "float"
+
+        kind, base = parse_type_annotation("i18n")
+        assert kind == "scalar"
+        assert base == "Localization.LocalizedStringRef"
     
     def test_parse_list(self):
         """测试解析列表类型"""
@@ -148,11 +152,13 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("nnfloat") == "float"
         assert convert_type_to_csharp("pint") == "int"
         assert convert_type_to_csharp("pfloat") == "float"
+        assert convert_type_to_csharp("i18n") == "Localization.LocalizedStringRef"
     
     def test_convert_list(self):
         """测试转换列表类型"""
         assert convert_type_to_csharp("list(int)") == "List<int>"
         assert convert_type_to_csharp("list(string)") == "List<string>"
+        assert convert_type_to_csharp("list(i18n)") == "List<Localization.LocalizedStringRef>"
     
     def test_convert_unilist(self):
         """测试转换唯一性列表类型"""

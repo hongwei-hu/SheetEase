@@ -50,6 +50,7 @@ ProjectFolder/          # C# 工程与导出示例
 ## 数据类型与自定义类型
 
 - 基础标量类型：`int`、`float`、`string/str`、`bool`、`nnint`、`nnfloat`、`pint`、`pfloat`
+- 内置短类型别名：`i18n` 等价于 `Localization.LocalizedStringRef`，用于本地化字符串引用
 - 容器类型：`list(...)`、`unilist(...)`、`dict(...)`
 - **自定义类型**：
   - **通用回退**（默认）：Excel 类型行填写全限定名，单元格用 `#` 分隔，导出为 `{ "__type": ..., "segments": [...] }`，C# 端自定义解析。

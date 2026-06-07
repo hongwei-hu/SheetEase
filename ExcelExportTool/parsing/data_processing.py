@@ -14,6 +14,7 @@ from ..utils.type_utils import (
     POSITIVE_FLOAT_TYPE_NAMES,
     POSITIVE_INT_TYPE_NAMES,
     parse_type_annotation,
+    resolve_type_alias,
     strip_type_constraints,
 )
 from ..generation.enum_registry import get_enum_registry
@@ -143,7 +144,7 @@ def convert_to_type(
     if not type_str:
         raise ValueError("空类型定义")
 
-    normalized_type_str = strip_type_constraints(type_str)
+    normalized_type_str = strip_type_constraints(resolve_type_alias(type_str))
 
     # 解析类型注解
     kind, base_type = parse_type_annotation(normalized_type_str)
@@ -477,7 +478,7 @@ def _convert_dict_enum(type_str: str, enum_name: str, value: Any, field: str = N
 
 def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None):
     """递归类型转换+范围检查。支持基础、list、dict、enum。"""
-    type_str = strip_type_constraints(type_str.strip())
+    type_str = strip_type_constraints(resolve_type_alias(type_str.strip()))
     if type_str in PRIMITIVE_TYPE_MAPPING:
         v = PRIMITIVE_TYPE_MAPPING[type_str](value)
         _check_csharp_primitive_range(type_str, v, raw=value, field=field, sheet=sheet, row=row, col=col)
@@ -491,5 +492,11 @@ def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str
     if enum_match:
         enum_name = enum_match.group(1).strip()
         return _convert_enum(enum_name, value, field=field, sheet=sheet, row=row, col=col)
+    if "." in type_str:
+        if custom_type_registry.contains(type_str):
+            return custom_type_registry.parse(type_str, value, field, sheet)
+        if GENERIC_CUSTOM_TYPE_FALLBACK:
+            return _generic_custom_type_object(type_str, None if value is None else str(value))
+        raise UnknownCustomTypeError(type_str, field, sheet)
     # 其它类型暂不递归
     return value

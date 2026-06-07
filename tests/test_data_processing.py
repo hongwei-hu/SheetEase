@@ -77,6 +77,14 @@ class TestConvertPrimitiveTypes:
         assert convert_to_type("string", 123) == "123"
         assert convert_to_type("string", None) == ""
 
+    def test_convert_i18n_alias(self):
+        """测试本地化字符串短类型别名"""
+        assert convert_to_type("i18n", "Hello#Menu") == {
+            "keyHash": 0,
+            "source": "Hello",
+            "context": "Menu",
+        }
+
 
 class TestConvertListTypes:
     """测试列表类型转换"""
@@ -90,6 +98,14 @@ class TestConvertListTypes:
         """测试string列表转换"""
         result = convert_to_type("list(string)", "a,b,c")
         assert result == ["a", "b", "c"]
+
+    def test_convert_list_i18n_alias(self):
+        """测试列表中本地化字符串短类型别名"""
+        result = convert_to_type("list(i18n)", "Hello#Menu,Bye#Menu")
+        assert result == [
+            {"keyHash": 0, "source": "Hello", "context": "Menu"},
+            {"keyHash": 0, "source": "Bye", "context": "Menu"},
+        ]
     
     def test_convert_empty_list(self):
         """测试空列表"""
