@@ -16,6 +16,7 @@ from ..exceptions import InvalidFieldNameError
 from ..exceptions import WriteFileError
 from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTypeError
 from ..generation.enum_registry import get_enum_registry, reset_enum_registry
+from ..generation.stable_enum_values import STABLE_ENUM_VALUES_FILENAME, StableEnumValueAllocator
 from ..utils.naming_config import ENUM_KEYS_SUFFIX
 REPORT = None  # 报表文件输出已移除
 CS_ENUM_INT_MIN = -2147483648
@@ -287,6 +288,7 @@ def batch_excel_to_json(
     log_sep("第一阶段：收集并导出枚举")
     reset_enum_registry()  # 重置枚举注册表
     enum_registry = get_enum_registry()
+    stable_enum_allocator = StableEnumValueAllocator(Path(source_folder) / STABLE_ENUM_VALUES_FILENAME)
     
     # 收集所有需要导出的枚举
     enum_files_to_export: list[Tuple[Path, str, list, list]] = []  # (excel_path, enum_type_name, enum_data, remarks)
@@ -314,7 +316,9 @@ def batch_excel_to_json(
                 if first_field_type in ("str", "string"):
                     # 需要生成枚举，收集枚举项（从第7行开始）
                     enum_type_name = f"{main_sheet.title}{ENUM_KEYS_SUFFIX}"
-                    enum_items = {}
+                    enum_names = []
+                    enum_explicit_values = {}
+                    enum_default_values = {}
                     enum_remarks = []  # 收集注释（来自第1行备注列）
                     idx_val = 0
                     for row in main_sheet.iter_rows(
@@ -330,7 +334,9 @@ def batch_excel_to_json(
                             continue
                         val_str = str(val).strip()
                         if val_str:
-                            enum_items[val_str] = idx_val
+                            enum_names.append(val_str)
+                            enum_explicit_values[val_str] = None
+                            enum_default_values[val_str] = idx_val
                             # 收集注释：第1行（备注行）对应列的值
                             remark = None
                             if len(main_sheet[1]) > pk_col_index:  # 第1行存在对应列
@@ -342,10 +348,10 @@ def batch_excel_to_json(
                             enum_remarks.append(remark)
                             idx_val += 1
                     
-                    if enum_items:
+                    if enum_names:
                         # 验证枚举项名称格式
                         invalid_items = []
-                        for item_name in enum_items.keys():
+                        for item_name in enum_names:
                             if not enum_registry.validate_enum_item_name(item_name, require_pascal_case=False):
                                 invalid_items.append(item_name)
                         if invalid_items:
@@ -353,6 +359,13 @@ def batch_excel_to_json(
                                 f"枚举 {enum_type_name} (来自 {excel_path.name}) 包含不符合C#标识符规范的枚举项: {invalid_items}。"
                                 f"自动生成的 Keys 枚举允许小写/下划线，但仍必须是合法 C# 标识符"
                             )
+                        enum_items = stable_enum_allocator.allocate(
+                            enum_type_name,
+                            enum_names,
+                            enum_explicit_values,
+                            enum_default_values,
+                            f"{excel_path.name} (主键为string类型)",
+                        )
                         # 注册枚举，记录来源信息
                         source_info = f"{excel_path.name} (主键为string类型)"
                         enum_registry.register_enum(
@@ -379,12 +392,12 @@ def batch_excel_to_json(
                 for sheet in wb.worksheets[1:]:
                     if sheet.title.startswith(enum_tag):
                         enum_type_name = sheet.title.replace(enum_tag, "")
-                        enum_items = {}
+                        enum_names = []
                         enum_explicit_values = {}
+                        enum_default_values = {}
                         enum_remarks = []  # 收集注释（来自第3列）
                         rows = list(sheet.iter_rows(min_row=2))
                         previous_effective_value = None
-                        seen_enum_values = {}
                         for row_index, r in enumerate(rows, start=2):
                             if len(r) < 1:
                                 continue
@@ -395,7 +408,7 @@ def batch_excel_to_json(
                             name_str = str(name).strip()
                             if not name_str:
                                 continue
-                            if name_str in enum_items:
+                            if name_str in enum_names:
                                 raise ExportError(
                                     f"duplicate enum item in {excel_path.name}/{sheet.title} row {row_index}: "
                                     f"{name_str}. C# enum member names must be unique."
@@ -408,7 +421,7 @@ def batch_excel_to_json(
                                 row_index,
                                 name_str,
                             )
-                            effective_value = (
+                            default_value = (
                                 explicit_value
                                 if explicit_value is not None
                                 else _next_csharp_enum_value(
@@ -419,18 +432,11 @@ def batch_excel_to_json(
                                     name_str,
                                 )
                             )
-                            previous_effective_value = effective_value
+                            previous_effective_value = default_value
 
-                            if effective_value in seen_enum_values:
-                                raise ExportError(
-                                    f"duplicate enum value in {excel_path.name}/{sheet.title} row {row_index}: "
-                                    f"{name_str}={effective_value} conflicts with "
-                                    f"{seen_enum_values[effective_value]}. Enum values must be unique."
-                                )
-                            seen_enum_values[effective_value] = name_str
-
-                            enum_items[name_str] = effective_value
+                            enum_names.append(name_str)
                             enum_explicit_values[name_str] = explicit_value
+                            enum_default_values[name_str] = default_value
                             # 收集注释：第3列（索引2）
                             remark = None
                             if len(r) > 2 and r[2].value:
@@ -439,10 +445,10 @@ def batch_excel_to_json(
                                     remark = None
                             enum_remarks.append(remark)
                         
-                        if enum_items:
+                        if enum_names:
                             # 验证枚举项名称格式
                             invalid_items = []
-                            for item_name in enum_items.keys():
+                            for item_name in enum_names:
                                 if not enum_registry.validate_enum_item_name(item_name):
                                     invalid_items.append(item_name)
                             if invalid_items:
@@ -450,10 +456,17 @@ def batch_excel_to_json(
                                     f"枚举 {enum_type_name} (来自 {excel_path.name}/{sheet.title}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
                                     f"枚举项必须以大写字母开头（大写驼峰式）"
                                 )
+                            enum_items = stable_enum_allocator.allocate(
+                                enum_type_name,
+                                enum_names,
+                                enum_explicit_values,
+                                enum_default_values,
+                                f"{excel_path.name}/{sheet.title}",
+                            )
                             # 注册枚举，记录来源信息
                             source_info = f"{excel_path.name}/{sheet.title}"
                             enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
-                            enum_files_to_export.append((excel_path, enum_type_name, list(enum_explicit_values.items()), enum_remarks))
+                            enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
                             log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name}/{sheet.title})")
         except ExportError as e:
             # 枚举相关的错误直接抛出，中断导表
@@ -463,6 +476,9 @@ def batch_excel_to_json(
             log_warn(f"收集枚举时出错（方式2）{excel_path.name}: {e}")
         
         # workbook 延迟到第二阶段后统一关闭，避免重复加载
+
+    if not dry_run:
+        stable_enum_allocator.save()
     
     # 导出所有枚举文件
     if enum_output_folder and enum_files_to_export:

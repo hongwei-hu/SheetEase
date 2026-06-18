@@ -8,6 +8,7 @@ import os
 from typing import Any, Dict, List, Optional, Iterator, Tuple
 
 from ..generation.cs_generation import generate_script_file, generate_enum_file
+from ..generation.enum_registry import get_enum_registry
 from ..parsing.excel_processing import read_cell_values, check_repeating_values
 from ..parsing.data_processing import convert_to_type
 from ..utils.naming_utils import is_valid_csharp_identifier
@@ -324,9 +325,18 @@ class WorksheetData:
             val = row[0].value
             validate_enum_name(val, 7 + idx)
             enum_names.append(val)
-            enum_values.append(idx_val)
+            enum_values.append(self._get_string_key_enum_value(val, idx_val))
             idx_val += 1
         generate_enum_file(enum_type_name, enum_names, enum_values, None, "Data.TableScript", output_folder)
+
+    def _get_string_key_enum_value(self, item_name: Any, fallback_value: int) -> int:
+        """返回字符串主键在已注册 Keys 枚举中的稳定值，缺失时兼容旧的顺序值。"""
+        enum_type_name = f"{self.name}{ENUM_KEYS_SUFFIX}"
+        registry = get_enum_registry()
+        item_text = str(item_name).strip()
+        if registry.has_enum(enum_type_name):
+            return registry.get_enum_value(enum_type_name, item_text)
+        return fallback_value
 
     def generate_json(self, output_folder: str) -> None:
         """将表格数据导出为 JSON 文件（支持单列 int 主键 / 自动生成键 / 以及组合键）。
@@ -380,7 +390,7 @@ class WorksheetData:
             excel_row = 7 + row_idx
             # 处理主键
             if self.need_generate_keys:
-                row_key = serial_key
+                row_key = self._get_string_key_enum_value(row[0].value, serial_key)
                 serial_key += 1
             elif self.composite_keys:
                 try:

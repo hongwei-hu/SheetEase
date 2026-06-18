@@ -95,3 +95,36 @@ def test_optional_enum_field_allows_empty_and_emits_nullable_type(monkeypatch, t
     out_file = tmp_path / "EnemyConfig.json"
     content = json.loads(out_file.read_text(encoding="utf-8"))
     assert content["1"]["value"] is None
+
+
+def test_string_key_json_and_keys_file_use_registered_stable_values(monkeypatch, tmp_path):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    reset_enum_registry()
+    reg = get_enum_registry()
+    reg.register_enum(
+        "WeaponTemplateKeys",
+        {"SwordTemplate": 0, "BowTemplate": 5},
+        source="stable manifest",
+        require_pascal_case_items=False,
+    )
+
+    ws = _build_min_sheet("WeaponTemplate")
+    _set_row(ws, 3, ["", "string", "int"])
+    _set_row(ws, 5, ["", "keyName", "value"])
+    _set_row(ws, 7, ["", "SwordTemplate", 10])
+    _set_row(ws, 8, ["", "BowTemplate", 20])
+
+    data = WorksheetData(ws)
+    data.generate_json(str(tmp_path))
+    data.generate_script(str(tmp_path))
+
+    content = json.loads((tmp_path / "WeaponTemplateConfig.json").read_text(encoding="utf-8"))
+    assert content["0"]["id"] == 0
+    assert content["5"]["id"] == 5
+    assert content["5"]["value"] == 20
+
+    keys_file = (tmp_path / "WeaponTemplateKeys.cs").read_text(encoding="utf-8")
+    assert "SwordTemplate = 0" in keys_file
+    assert "BowTemplate = 5" in keys_file
