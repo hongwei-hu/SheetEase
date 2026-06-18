@@ -288,7 +288,13 @@ def batch_excel_to_json(
     log_sep("第一阶段：收集并导出枚举")
     reset_enum_registry()  # 重置枚举注册表
     enum_registry = get_enum_registry()
-    stable_enum_allocator = StableEnumValueAllocator(Path(source_folder) / STABLE_ENUM_VALUES_FILENAME)
+    stable_enum_allocator = StableEnumValueAllocator(
+        Path(source_folder) / STABLE_ENUM_VALUES_FILENAME,
+        bootstrap_dirs=[
+            Path(csfile_output_folder) if csfile_output_folder else None,
+            Path(enum_output_folder) if enum_output_folder else None,
+        ],
+    )
     
     # 收集所有需要导出的枚举
     enum_files_to_export: list[Tuple[Path, str, list, list]] = []  # (excel_path, enum_type_name, enum_data, remarks)

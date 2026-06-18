@@ -137,6 +137,20 @@ def _build_workbook_with_enum_sheet(path: Path, enum_rows: list[tuple]) -> None:
     wb.close()
 
 
+def _write_generated_enum(path: Path, enum_name: str, members: list[tuple[str, int]]) -> None:
+    lines = [
+        "namespace Data.TableScript",
+        "{",
+        f"    public enum {enum_name}",
+        "    {",
+    ]
+    for name, value in members:
+        lines.append(f"        {name} = {value},")
+    lines.extend(["    }", "}"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def test_batch_excel_to_json_collects_keys_enum_from_column_b(monkeypatch, tmp_path):
     # 文件名首字母大写才会参与导表
     xlsx = tmp_path / "WeaponTemplate.xlsx"
@@ -226,6 +240,41 @@ def test_batch_excel_to_json_preserves_auto_key_values_when_inserted_between_run
     assert reg.get_enum_value("WeaponTemplateKeys", "AxeTemplate") == 2
 
 
+def test_batch_excel_to_json_bootstraps_auto_key_values_from_existing_cs_output(monkeypatch, tmp_path):
+    xlsx = tmp_path / "WeaponTemplate.xlsx"
+    _build_workbook_for_keys_enum_collection(
+        xlsx,
+        type_col=2,
+        keys=["SwordTemplate", "AxeTemplate", "BowTemplate"],
+    )
+    cs_out = tmp_path / "cs_out"
+    _write_generated_enum(
+        cs_out / "WeaponTemplateKeys.cs",
+        "WeaponTemplateKeys",
+        [("SwordTemplate", 0), ("BowTemplate", 5)],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+
+    reset_enum_registry()
+    export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=None,
+        output_project_folder=None,
+        csfile_output_folder=str(cs_out),
+        enum_output_folder=None,
+        auto_cleanup=False,
+    )
+
+    reg = get_enum_registry()
+    assert reg.get_enum_value("WeaponTemplateKeys", "SwordTemplate") == 0
+    assert reg.get_enum_value("WeaponTemplateKeys", "BowTemplate") == 5
+    assert reg.get_enum_value("WeaponTemplateKeys", "AxeTemplate") == 6
+
+    manifest = json.loads((tmp_path / ".stable_enum_values.json").read_text(encoding="utf-8"))
+    assert manifest["WeaponTemplateKeys"]["BowTemplate"] == 5
+
+
 def test_batch_excel_to_json_does_not_export_auto_keys_to_enum_folder(monkeypatch, tmp_path):
     xlsx = tmp_path / "CombatAttribute.xlsx"
     _build_minimal_workbook_for_enum_collection(xlsx, type_col=2)  # B列 string 主键
@@ -302,6 +351,92 @@ def test_batch_excel_to_json_exports_enum_sheet_items_without_explicit_values(mo
     reg = get_enum_registry()
     assert reg.get_enum_value("Quality", "Common") == 0
     assert reg.get_enum_value("Quality", "Rare") == 1
+
+
+def test_batch_excel_to_json_bootstraps_enum_sheet_values_from_existing_enum_output(monkeypatch, tmp_path):
+    xlsx = tmp_path / "Item.xlsx"
+    _build_workbook_with_enum_sheet(
+        xlsx,
+        [
+            ("Common", None, "common"),
+            ("Epic", None, "epic"),
+            ("Rare", None, "rare"),
+        ],
+    )
+    enum_out = tmp_path / "enum_out"
+    _write_generated_enum(
+        enum_out / "Quality.cs",
+        "Quality",
+        [("Common", 0), ("Rare", 5)],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+
+    exported = {}
+
+    def _fake_generate_enum_file(enum_type_name, enum_names, enum_values, remarks, name_space, output_folder):
+        exported["enum_type_name"] = enum_type_name
+        exported["enum_names"] = enum_names
+        exported["enum_values"] = enum_values
+
+    monkeypatch.setattr(export_process, "generate_enum_file", _fake_generate_enum_file)
+
+    reset_enum_registry()
+    export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=None,
+        output_project_folder=None,
+        csfile_output_folder=None,
+        enum_output_folder=str(enum_out),
+        auto_cleanup=False,
+    )
+
+    assert exported["enum_type_name"] == "Quality"
+    assert exported["enum_names"] == ["Common", "Epic", "Rare"]
+    assert exported["enum_values"] == [0, 6, 5]
+
+    manifest = json.loads((tmp_path / ".stable_enum_values.json").read_text(encoding="utf-8"))
+    assert manifest["Quality"]["Rare"] == 5
+
+
+def test_batch_excel_to_json_all_explicit_enum_ignores_bootstrap_values(monkeypatch, tmp_path):
+    xlsx = tmp_path / "Item.xlsx"
+    _build_workbook_with_enum_sheet(
+        xlsx,
+        [
+            ("Common", 10, "common"),
+            ("Rare", 11, "rare"),
+        ],
+    )
+    enum_out = tmp_path / "enum_out"
+    _write_generated_enum(
+        enum_out / "Quality.cs",
+        "Quality",
+        [("Common", 0), ("Rare", 5)],
+    )
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+
+    exported = {}
+
+    def _fake_generate_enum_file(enum_type_name, enum_names, enum_values, remarks, name_space, output_folder):
+        exported["enum_values"] = enum_values
+
+    monkeypatch.setattr(export_process, "generate_enum_file", _fake_generate_enum_file)
+
+    reset_enum_registry()
+    export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=None,
+        output_project_folder=None,
+        csfile_output_folder=None,
+        enum_output_folder=str(enum_out),
+        auto_cleanup=False,
+    )
+
+    assert exported["enum_values"] == [10, 11]
+    manifest = json.loads((tmp_path / ".stable_enum_values.json").read_text(encoding="utf-8"))
+    assert "Quality" not in manifest
 
 
 def test_batch_excel_to_json_rejects_duplicate_manual_enum_values(monkeypatch, tmp_path):

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional
+from typing import Dict, Iterable, Mapping, Optional, Sequence
 
 from ..exceptions import ExportError
 
@@ -15,10 +16,15 @@ STABLE_ENUM_VALUES_FILENAME = ".stable_enum_values.json"
 class StableEnumValueAllocator:
     """Allocate enum values without shifting existing implicit values."""
 
-    def __init__(self, manifest_path: Path) -> None:
+    def __init__(self, manifest_path: Path, bootstrap_dirs: Optional[Sequence[Optional[Path]]] = None) -> None:
         self.manifest_path = manifest_path
-        self._values: Dict[str, Dict[str, int]] = self._load(manifest_path)
-        self._dirty = False
+        self._loaded_from_manifest = manifest_path.exists()
+        if manifest_path.exists():
+            self._values: Dict[str, Dict[str, int]] = self._load(manifest_path)
+            self._dirty = False
+        else:
+            self._values = self._load_generated_enum_values(bootstrap_dirs or [])
+            self._dirty = bool(self._values)
 
     @staticmethod
     def _load(path: Path) -> Dict[str, Dict[str, int]]:
@@ -44,6 +50,58 @@ class StableEnumValueAllocator:
                 result[enum_name][item_name] = value
         return result
 
+    @staticmethod
+    def _load_generated_enum_values(paths: Sequence[Optional[Path]]) -> Dict[str, Dict[str, int]]:
+        result: Dict[str, Dict[str, int]] = {}
+        for raw_path in paths:
+            if raw_path is None:
+                continue
+            path = Path(raw_path)
+            if not path.exists() or not path.is_dir():
+                continue
+            for cs_path in path.rglob("*.cs"):
+                for enum_name, items in StableEnumValueAllocator._parse_generated_enum_file(cs_path).items():
+                    existing = result.get(enum_name)
+                    if existing is not None and existing != items:
+                        raise ExportError(
+                            f"stable enum bootstrap 冲突: {enum_name} 在多个生成文件中定义不一致"
+                        )
+                    result[enum_name] = items
+        return result
+
+    @staticmethod
+    def _parse_generated_enum_file(path: Path) -> Dict[str, Dict[str, int]]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = path.read_text(encoding="utf-8-sig")
+        except Exception as exc:
+            raise ExportError(f"stable enum bootstrap 读取失败: {path} -> {exc}") from exc
+
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        enums: Dict[str, Dict[str, int]] = {}
+        for match in re.finditer(r"\benum\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{(.*?)\}", text, flags=re.S):
+            enum_name = match.group(1)
+            body = match.group(2)
+            items: Dict[str, int] = {}
+            for member_text in body.split(","):
+                member_text = re.sub(r"//.*", "", member_text).strip()
+                if not member_text:
+                    continue
+                member_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([+-]?\d+)$", member_text)
+                if member_match is None:
+                    continue
+                item_name = member_match.group(1)
+                item_value = int(member_match.group(2))
+                if item_value in items.values():
+                    raise ExportError(
+                        f"stable enum bootstrap 发现重复值: {path} 中 {enum_name}.{item_name}={item_value}"
+                    )
+                items[item_name] = item_value
+            if items:
+                enums[enum_name] = items
+        return enums
+
     def allocate(
         self,
         enum_name: str,
@@ -58,6 +116,9 @@ class StableEnumValueAllocator:
 
         all_explicit = all(explicit_values.get(name) is not None for name in ordered_names)
         if all_explicit:
+            if not self._loaded_from_manifest and enum_name in self._values:
+                del self._values[enum_name]
+                self._dirty = True
             return self._resolve_all_explicit(enum_name, ordered_names, explicit_values, source)
 
         stable_items = self._values.get(enum_name, {})
@@ -111,7 +172,7 @@ class StableEnumValueAllocator:
                 result[name] = historical_value
                 continue
 
-            candidate = default_values[name]
+            candidate = self._next_free_value(used_values) if stable_items else default_values[name]
             explicit_owner = explicit_owner_by_value.get(candidate)
             if explicit_owner is not None:
                 raise ExportError(
