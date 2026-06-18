@@ -200,18 +200,19 @@ def test_batch_excel_to_json_preserves_auto_key_values_when_inserted_between_run
     _build_workbook_for_keys_enum_collection(xlsx, type_col=2, keys=["SwordTemplate", "BowTemplate"])
 
     monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    project_out = tmp_path / "project_out"
 
     reset_enum_registry()
     export_process.batch_excel_to_json(
         source_folder=str(tmp_path),
         output_client_folder=None,
-        output_project_folder=None,
+        output_project_folder=str(project_out),
         csfile_output_folder=None,
         enum_output_folder=None,
         auto_cleanup=False,
     )
 
-    manifest_path = tmp_path / ".stable_enum_values.json"
+    manifest_path = project_out / ".sheetease" / "stable_enum_values.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["WeaponTemplateKeys"] == {
         "SwordTemplate": 0,
@@ -228,7 +229,7 @@ def test_batch_excel_to_json_preserves_auto_key_values_when_inserted_between_run
     export_process.batch_excel_to_json(
         source_folder=str(tmp_path),
         output_client_folder=None,
-        output_project_folder=None,
+        output_project_folder=str(project_out),
         csfile_output_folder=None,
         enum_output_folder=None,
         auto_cleanup=False,
@@ -240,6 +241,28 @@ def test_batch_excel_to_json_preserves_auto_key_values_when_inserted_between_run
     assert reg.get_enum_value("WeaponTemplateKeys", "AxeTemplate") == 2
 
 
+def test_batch_excel_to_json_uses_client_manifest_when_project_output_missing(monkeypatch, tmp_path):
+    xlsx = tmp_path / "WeaponTemplate.xlsx"
+    _build_workbook_for_keys_enum_collection(xlsx, type_col=2, keys=["SwordTemplate"])
+
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    client_out = tmp_path / "client_out"
+
+    reset_enum_registry()
+    export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=str(client_out),
+        output_project_folder=None,
+        csfile_output_folder=None,
+        enum_output_folder=None,
+        auto_cleanup=False,
+    )
+
+    manifest = json.loads((client_out / ".sheetease" / "stable_enum_values.json").read_text(encoding="utf-8"))
+    assert manifest["WeaponTemplateKeys"]["SwordTemplate"] == 0
+    assert not (tmp_path / ".stable_enum_values.json").exists()
+
+
 def test_batch_excel_to_json_bootstraps_auto_key_values_from_existing_cs_output(monkeypatch, tmp_path):
     xlsx = tmp_path / "WeaponTemplate.xlsx"
     _build_workbook_for_keys_enum_collection(
@@ -248,6 +271,7 @@ def test_batch_excel_to_json_bootstraps_auto_key_values_from_existing_cs_output(
         keys=["SwordTemplate", "AxeTemplate", "BowTemplate"],
     )
     cs_out = tmp_path / "cs_out"
+    project_out = tmp_path / "project_out"
     _write_generated_enum(
         cs_out / "WeaponTemplateKeys.cs",
         "WeaponTemplateKeys",
@@ -260,7 +284,7 @@ def test_batch_excel_to_json_bootstraps_auto_key_values_from_existing_cs_output(
     export_process.batch_excel_to_json(
         source_folder=str(tmp_path),
         output_client_folder=None,
-        output_project_folder=None,
+        output_project_folder=str(project_out),
         csfile_output_folder=str(cs_out),
         enum_output_folder=None,
         auto_cleanup=False,
@@ -271,7 +295,7 @@ def test_batch_excel_to_json_bootstraps_auto_key_values_from_existing_cs_output(
     assert reg.get_enum_value("WeaponTemplateKeys", "BowTemplate") == 5
     assert reg.get_enum_value("WeaponTemplateKeys", "AxeTemplate") == 6
 
-    manifest = json.loads((tmp_path / ".stable_enum_values.json").read_text(encoding="utf-8"))
+    manifest = json.loads((project_out / ".sheetease" / "stable_enum_values.json").read_text(encoding="utf-8"))
     assert manifest["WeaponTemplateKeys"]["BowTemplate"] == 5
 
 

@@ -21,6 +21,8 @@ from ..utils.naming_config import ENUM_KEYS_SUFFIX
 REPORT = None  # 报表文件输出已移除
 CS_ENUM_INT_MIN = -2147483648
 CS_ENUM_INT_MAX = 2147483647
+SHEETEASE_METADATA_DIR = ".sheetease"
+STABLE_ENUM_VALUES_PROJECT_FILENAME = "stable_enum_values.json"
 
 
 def _parse_manual_enum_value(raw_value, excel_name: str, sheet_name: str, row_index: int, item_name: str) -> Optional[int]:
@@ -102,6 +104,20 @@ def _pick_primary_key_col_index(sheet) -> int:
     except Exception:
         pass
     return 0
+
+
+def _stable_enum_manifest_path(
+    source_folder: str,
+    output_project_folder: Optional[str],
+    output_client_folder: Optional[str],
+) -> Path:
+    """选择稳定枚举值 manifest 位置，优先放在 JSON 导出目录的工具元数据目录。"""
+    if output_project_folder:
+        return Path(output_project_folder) / SHEETEASE_METADATA_DIR / STABLE_ENUM_VALUES_PROJECT_FILENAME
+    if output_client_folder:
+        return Path(output_client_folder) / SHEETEASE_METADATA_DIR / STABLE_ENUM_VALUES_PROJECT_FILENAME
+    return Path(source_folder) / STABLE_ENUM_VALUES_FILENAME
+
 
 def process_excel_file(
     excel_path: Path,
@@ -289,7 +305,7 @@ def batch_excel_to_json(
     reset_enum_registry()  # 重置枚举注册表
     enum_registry = get_enum_registry()
     stable_enum_allocator = StableEnumValueAllocator(
-        Path(source_folder) / STABLE_ENUM_VALUES_FILENAME,
+        _stable_enum_manifest_path(source_folder, output_project_folder, output_client_folder),
         bootstrap_dirs=[
             Path(csfile_output_folder) if csfile_output_folder else None,
             Path(enum_output_folder) if enum_output_folder else None,
