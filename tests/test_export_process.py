@@ -100,6 +100,21 @@ def test_batch_excel_to_json_output_not_writable_raises(monkeypatch, tmp_path):
         )
 
 
+def test_cleanup_files_ignores_sheetease_metadata(monkeypatch, tmp_path):
+    metadata_file = tmp_path / ".sheetease" / "stable_enum_values.json"
+    metadata_file.parent.mkdir(parents=True)
+    metadata_file.write_text("{}", encoding="utf-8")
+
+    def fail_confirm(*args, **kwargs):
+        raise AssertionError("cleanup should not ask to delete SheetEase metadata")
+
+    monkeypatch.setattr(export_process, "user_confirm", fail_confirm)
+
+    export_process.cleanup_files([str(tmp_path)])
+
+    assert metadata_file.exists()
+
+
 def _build_minimal_workbook_for_enum_collection(path: Path, type_col: int) -> None:
     """创建仅用于第一阶段枚举收集的最小工作簿。"""
     wb = openpyxl.Workbook()

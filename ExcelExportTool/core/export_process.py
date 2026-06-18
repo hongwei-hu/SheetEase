@@ -201,6 +201,8 @@ def cleanup_files(output_folders: list[Optional[str]]) -> None:
         if not p.exists():
             continue
         for f in p.rglob("*"):
+            if SHEETEASE_METADATA_DIR in f.relative_to(p).parts:
+                continue
             if f.is_file() and f.suffix != ".meta":
                 if str(f.resolve()) not in created and str(f.with_suffix(f.suffix + ".meta").resolve()) not in created:
                     stale.append(f)
