@@ -11,11 +11,44 @@ _CONSTRAINT_BLOCK_RE = re.compile(r'^(.*?)(\{[^{}]*\})\s*$', re.DOTALL)
 ENUM_TYPE_RE = re.compile(r"^enum\s*\(\s*([^)]+)\s*\)$", re.IGNORECASE)
 LIST_TYPE_RE = re.compile(r"^list\s*\(\s*(.+)\s*\)$", re.IGNORECASE)
 DICT_TYPE_RE = re.compile(r"^dict\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", re.IGNORECASE)
+TYPE_CALL_RE = re.compile(r"^([A-Za-z_]\w*)\s*\((.*)\)$", re.DOTALL)
 
-NONNEGATIVE_INT_TYPE_NAMES = {"nnint"}
-NONNEGATIVE_FLOAT_TYPE_NAMES = {"nnfloat"}
-POSITIVE_INT_TYPE_NAMES = {"pint"}
-POSITIVE_FLOAT_TYPE_NAMES = {"pfloat"}
+CONSTRAINED_SCALAR_TYPE_RULES = {
+    "nnint": ("int", "nonnegative"),
+    "nnfloat": ("float", "nonnegative"),
+    "pint": ("int", "positive"),
+    "pfloat": ("float", "positive"),
+}
+
+SCALAR_TYPE_ALIASES = {
+    "int": "int",
+    "int32": "int",
+    "integer": "int",
+    "float": "float",
+    "double": "float",
+    "str": "string",
+    "string": "string",
+    "bool": "bool",
+    "boolean": "bool",
+    **{name: base for name, (base, _) in CONSTRAINED_SCALAR_TYPE_RULES.items()},
+}
+
+NONNEGATIVE_INT_TYPE_NAMES = {
+    name for name, (base, rule) in CONSTRAINED_SCALAR_TYPE_RULES.items()
+    if base == "int" and rule == "nonnegative"
+}
+NONNEGATIVE_FLOAT_TYPE_NAMES = {
+    name for name, (base, rule) in CONSTRAINED_SCALAR_TYPE_RULES.items()
+    if base == "float" and rule == "nonnegative"
+}
+POSITIVE_INT_TYPE_NAMES = {
+    name for name, (base, rule) in CONSTRAINED_SCALAR_TYPE_RULES.items()
+    if base == "int" and rule == "positive"
+}
+POSITIVE_FLOAT_TYPE_NAMES = {
+    name for name, (base, rule) in CONSTRAINED_SCALAR_TYPE_RULES.items()
+    if base == "float" and rule == "positive"
+}
 UNILIST_TYPE_NAMES = {"unilist"}
 
 TYPE_ALIASES = {
@@ -44,38 +77,94 @@ def resolve_type_alias(type_str: str) -> str:
     if not raw:
         return raw
 
-    constraint = ""
-    m = _CONSTRAINT_BLOCK_RE.match(raw)
-    if m:
-        raw = m.group(1).strip()
-        constraint = m.group(2)
+    raw, constraint = _split_type_constraints(raw)
 
     resolved = _resolve_type_alias_inner(raw)
     return f"{resolved}{constraint}"
 
 
 def _resolve_type_alias_inner(type_str: str) -> str:
+    return _normalize_type_expr(type_str, normalize_short_scalars=False)
+
+
+def normalize_type_annotation(type_str: str) -> str:
+    """递归规范化类型注解，将短名基础类型转为运行时/C#基础类型。"""
+    raw = (type_str or "").strip()
+    if not raw:
+        return raw
+
+    raw, constraint = _split_type_constraints(raw)
+    normalized = _normalize_type_expr(raw, normalize_short_scalars=True)
+    return f"{normalized}{constraint}"
+
+
+def _split_type_constraints(type_str: str) -> tuple[str, str]:
+    m = _CONSTRAINT_BLOCK_RE.match(type_str.strip())
+    if m:
+        return m.group(1).strip(), m.group(2)
+    return type_str.strip(), ""
+
+
+def _normalize_type_expr(type_str: str, normalize_short_scalars: bool) -> str:
     t = (type_str or "").strip()
     if not t:
         return t
 
-    alias = TYPE_ALIASES.get(t.lower())
+    lowered = t.lower()
+    alias = TYPE_ALIASES.get(lowered)
     if alias:
         return alias
 
-    list_match = re.match(r"^(list|unilist)\s*\(\s*(.+)\s*\)$", t, re.IGNORECASE)
-    if list_match:
-        container = list_match.group(1).lower()
-        inner = _resolve_type_alias_inner(list_match.group(2).strip())
+    if normalize_short_scalars:
+        scalar_alias = SCALAR_TYPE_ALIASES.get(lowered)
+        if scalar_alias:
+            return scalar_alias
+
+    call_match = TYPE_CALL_RE.match(t)
+    if not call_match:
+        return t
+
+    container = call_match.group(1).lower()
+    args = call_match.group(2).strip()
+
+    if container in ("list", "unilist"):
+        inner = _normalize_type_expr(args, normalize_short_scalars)
         return f"{container}({inner})"
 
-    dict_match = DICT_TYPE_RE.match(t)
-    if dict_match:
-        key_type = _resolve_type_alias_inner(dict_match.group(1).strip())
-        value_type = _resolve_type_alias_inner(dict_match.group(2).strip())
+    if container == "dict":
+        parts = split_type_arguments(args)
+        if len(parts) != 2:
+            return t
+        key_type = _normalize_type_expr(parts[0], normalize_short_scalars)
+        value_type = _normalize_type_expr(parts[1], normalize_short_scalars)
         return f"dict({key_type},{value_type})"
 
+    if container == "enum":
+        return f"enum({args})"
+
     return t
+
+
+def split_type_arguments(args: str) -> list[str]:
+    """按顶层逗号拆分类型参数，忽略嵌套括号内的逗号。"""
+    result: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in args:
+        if char == "(":
+            depth += 1
+            current.append(char)
+        elif char == ")":
+            depth -= 1
+            current.append(char)
+        elif char == "," and depth == 0:
+            result.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    if current:
+        result.append("".join(current).strip())
+    return result
 
 
 def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
@@ -86,20 +175,11 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
         (类型种类, 基础类型或枚举名)
         类型种类: "scalar", "list", "dict", "enum", "unilist"
     """
-    t = strip_type_constraints(resolve_type_alias((type_str or "").strip()))
+    t = strip_type_constraints(normalize_type_annotation((type_str or "").strip()))
 
     def base_norm(s: str) -> str:
         raw = s.strip()
-        normalized = raw.lower()
-        if normalized in ("int", "int32", "integer"): return "int"
-        if normalized in ("float", "double"): return "float"
-        if normalized in NONNEGATIVE_INT_TYPE_NAMES: return "int"
-        if normalized in NONNEGATIVE_FLOAT_TYPE_NAMES: return "float"
-        if normalized in POSITIVE_INT_TYPE_NAMES: return "int"
-        if normalized in POSITIVE_FLOAT_TYPE_NAMES: return "float"
-        if normalized in ("str", "string"): return "string"
-        if normalized in ("bool", "boolean"): return "bool"
-        return raw
+        return SCALAR_TYPE_ALIASES.get(raw.lower(), raw)
 
     # 检查是否是 enum(枚举名)
     enum_match = ENUM_TYPE_RE.match(t)
@@ -191,36 +271,38 @@ def convert_type_to_csharp(type_str: str) -> str:
     Convert a type annotation to C# representation.
     Supports: list, unilist, dict, enum(EnumName)
     """
-    import re
-    type_str = strip_type_constraints(resolve_type_alias((type_str or "").strip()))
-    
-    normalized_scalar = parse_type_annotation(type_str)
-    if normalized_scalar[0] == "scalar" and normalized_scalar[1] in ("int", "float", "string", "bool"):
-        return normalized_scalar[1]
+    normalized = strip_type_constraints(normalize_type_annotation((type_str or "").strip()))
+    return _convert_type_expr_to_csharp(normalized)
 
-    # 处理 enum(枚举名)
-    enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", type_str, re.IGNORECASE)
-    if enum_match:
-        enum_name = enum_match.group(1).strip()
-        return enum_name  # 直接返回枚举类型名
-    
-    # 处理 list(enum(枚举名)) 和 unilist(enum(枚举名))
-    list_enum_match = re.match(r"^(?:list|unilist)\s*\(\s*enum\s*\(\s*([^)]+)\s*\)\s*\)$", type_str, re.IGNORECASE)
-    if list_enum_match:
-        enum_name = list_enum_match.group(1).strip()
-        return f"List<{enum_name}>"
-    
-    # 处理 dict(..., enum(枚举名))
-    dict_enum_match = re.match(r"^dict\s*\(\s*([^,]+)\s*,\s*enum\s*\(\s*([^)]+)\s*\)\s*\)$", type_str, re.IGNORECASE)
-    if dict_enum_match:
-        key_type = dict_enum_match.group(1).strip()
-        enum_name = dict_enum_match.group(2).strip()
-        # 转换key类型
-        key_cs = convert_type_to_csharp(key_type) if key_type not in ("int", "string", "float", "bool") else key_type
-        return f"Dictionary<{key_cs}, {enum_name}>"
-    
-    # 原有的处理逻辑：unilist(...) 转为 List<...>
-    type_str = type_str.replace("unilist", "list")
-    type_str = type_str.replace("list", "List")
-    type_str = type_str.replace("dict", "Dictionary")
-    return type_str.replace("(", "<").replace(")", ">")
+
+def _convert_type_expr_to_csharp(type_str: str) -> str:
+    t = (type_str or "").strip()
+    if not t:
+        return t
+
+    scalar = SCALAR_TYPE_ALIASES.get(t.lower())
+    if scalar:
+        return scalar
+
+    call_match = TYPE_CALL_RE.match(t)
+    if not call_match:
+        return t
+
+    container = call_match.group(1).lower()
+    args = call_match.group(2).strip()
+
+    if container == "enum":
+        return args
+
+    if container in ("list", "unilist"):
+        return f"List<{_convert_type_expr_to_csharp(args)}>"
+
+    if container == "dict":
+        parts = split_type_arguments(args)
+        if len(parts) != 2:
+            return t
+        key_cs = _convert_type_expr_to_csharp(parts[0])
+        value_cs = _convert_type_expr_to_csharp(parts[1])
+        return f"Dictionary<{key_cs},{value_cs}>"
+
+    return t

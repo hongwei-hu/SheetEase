@@ -13,8 +13,10 @@ from ..utils.type_utils import (
     NONNEGATIVE_INT_TYPE_NAMES,
     POSITIVE_FLOAT_TYPE_NAMES,
     POSITIVE_INT_TYPE_NAMES,
+    SCALAR_TYPE_ALIASES,
     parse_type_annotation,
     resolve_type_alias,
+    split_type_arguments,
     strip_type_constraints,
 )
 from ..generation.enum_registry import get_enum_registry
@@ -29,16 +31,16 @@ def _parse_bool(x):
     # 其它非法值，仍返回False，但后续会警告
     return False
 
-PRIMITIVE_TYPE_MAPPING: Dict[str, Callable[[Any], Any]] = {
+_PRIMITIVE_CONVERTERS: Dict[str, Callable[[Any], Any]] = {
     "int": int,
     "float": float,
     "bool": _parse_bool,
-    "str": str,
-    "string": str,  # 兼容别名
-    "nnint": int,
-    "nnfloat": float,
-    "pint": int,
-    "pfloat": float,
+    "string": str,
+}
+
+PRIMITIVE_TYPE_MAPPING: Dict[str, Callable[[Any], Any]] = {
+    type_name: _PRIMITIVE_CONVERTERS[base_type]
+    for type_name, base_type in SCALAR_TYPE_ALIASES.items()
 }
 
 NONNEGATIVE_PRIMITIVE_TYPES = NONNEGATIVE_INT_TYPE_NAMES | NONNEGATIVE_FLOAT_TYPE_NAMES
@@ -274,7 +276,10 @@ def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = Non
     type_match = re.search(r"\((.*)\)", type_str)
     if not type_match or value is None:
         return result
-    key_type_str, value_type_str = map(str.strip, type_match.group(1).split(","))
+    type_args = split_type_arguments(type_match.group(1))
+    if len(type_args) != 2:
+        return result
+    key_type_str, value_type_str = type_args
     # 支持嵌套类型
     for line in str(value).splitlines():
         if ":" in line:
@@ -462,7 +467,10 @@ def _convert_dict_enum(type_str: str, enum_name: str, value: Any, field: str = N
     if not type_match or value is None:
         return result
     
-    key_type_str, _ = map(str.strip, type_match.group(1).split(","))
+    type_args = split_type_arguments(type_match.group(1))
+    if len(type_args) != 2:
+        return result
+    key_type_str, _ = type_args
     # 解析字典
     for line in str(value).splitlines():
         if ":" in line:
@@ -483,7 +491,7 @@ def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str
         v = PRIMITIVE_TYPE_MAPPING[type_str](value)
         _check_csharp_primitive_range(type_str, v, raw=value, field=field, sheet=sheet, row=row, col=col)
         return v
-    if type_str.startswith("list"):
+    if type_str.startswith("list") or type_str.startswith("unilist"):
         return _convert_list(type_str, value, field=field, sheet=sheet, row=row, col=col)
     if type_str.startswith("dict"):
         return _convert_dict(type_str, value, field=field, sheet=sheet, row=row, col=col)

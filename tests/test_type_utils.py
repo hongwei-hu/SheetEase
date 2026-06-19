@@ -1,7 +1,10 @@
 """单元测试：type_utils模块"""
-import pytest
-from ExcelExportTool.utils.type_utils import validate_type_annotation, parse_type_annotation, convert_type_to_csharp
-from ExcelExportTool.exceptions import ExportError
+from ExcelExportTool.utils.type_utils import (
+    validate_type_annotation,
+    parse_type_annotation,
+    convert_type_to_csharp,
+    normalize_type_annotation,
+)
 
 
 class TestValidateTypeAnnotation:
@@ -21,9 +24,11 @@ class TestValidateTypeAnnotation:
     def test_valid_list_types(self):
         """测试有效的列表类型"""
         assert validate_type_annotation("list(int)") == (True, "")
+        assert validate_type_annotation("list(pint)") == (True, "")
         assert validate_type_annotation("list(string)") == (True, "")
         assert validate_type_annotation("list(list(int))") == (True, "")
         assert validate_type_annotation("unilist(int)") == (True, "")
+        assert validate_type_annotation("unilist(nnfloat)") == (True, "")
         assert validate_type_annotation("unilist(string)") == (True, "")
         assert validate_type_annotation("unilist(enum(TestEnum))") == (True, "")
     
@@ -31,6 +36,7 @@ class TestValidateTypeAnnotation:
         """测试有效的字典类型"""
         assert validate_type_annotation("dict(int,string)") == (True, "")
         assert validate_type_annotation("dict(string,int)") == (True, "")
+        assert validate_type_annotation("dict(string,list(pint))") == (True, "")
     
     def test_valid_enum_types(self):
         """测试有效的枚举类型"""
@@ -108,6 +114,10 @@ class TestParseTypeAnnotation:
         kind, base = parse_type_annotation("list(int)")
         assert kind == "list"
         assert base == "int"
+
+        kind, base = parse_type_annotation("list(pint)")
+        assert kind == "list"
+        assert base == "int"
         
         kind, base = parse_type_annotation("list(string)")
         assert kind == "list"
@@ -157,12 +167,15 @@ class TestConvertTypeToCsharp:
     def test_convert_list(self):
         """测试转换列表类型"""
         assert convert_type_to_csharp("list(int)") == "List<int>"
+        assert convert_type_to_csharp("list(pint)") == "List<int>"
+        assert convert_type_to_csharp("list(list(pint))") == "List<List<int>>"
         assert convert_type_to_csharp("list(string)") == "List<string>"
         assert convert_type_to_csharp("list(i18n)") == "List<Localization.LocalizedStringRef>"
     
     def test_convert_unilist(self):
         """测试转换唯一性列表类型"""
         assert convert_type_to_csharp("unilist(int)") == "List<int>"
+        assert convert_type_to_csharp("unilist(nnfloat)") == "List<float>"
         assert convert_type_to_csharp("unilist(string)") == "List<string>"
         assert convert_type_to_csharp("unilist(enum(TestEnum))") == "List<TestEnum>"
     
@@ -178,6 +191,8 @@ class TestConvertTypeToCsharp:
         """测试转换字典类型"""
         assert convert_type_to_csharp("dict(int,string)") == "Dictionary<int,string>"
         assert convert_type_to_csharp("dict(string,int)") == "Dictionary<string,int>"
+        assert convert_type_to_csharp("dict(string,pfloat)") == "Dictionary<string,float>"
+        assert convert_type_to_csharp("dict(string,list(pint))") == "Dictionary<string,List<int>>"
 
     def test_convert_types_with_constraints(self):
         """测试带约束的类型不会泄漏到 C# 类型声明中"""
@@ -187,4 +202,19 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("unilist(int){nonempty}") == "List<int>"
         assert convert_type_to_csharp("dict(string,int){minsize:1}") == "Dictionary<string,int>"
         assert convert_type_to_csharp("enum(Rarity){nonempty}") == "Rarity"
+
+
+class TestNormalizeTypeAnnotation:
+    """测试类型注解规范化。"""
+
+    def test_normalize_nested_short_scalar_types(self):
+        assert normalize_type_annotation("pint") == "int"
+        assert normalize_type_annotation("list(pint)") == "list(int)"
+        assert normalize_type_annotation("unilist(nnfloat)") == "unilist(float)"
+        assert normalize_type_annotation("dict(string,pfloat)") == "dict(string,float)"
+        assert normalize_type_annotation("dict(string,list(pint)){nonempty}") == "dict(string,list(int)){nonempty}"
+
+    def test_normalize_preserves_custom_aliases_and_enums(self):
+        assert normalize_type_annotation("list(i18n)") == "list(Localization.LocalizedStringRef)"
+        assert normalize_type_annotation("list(enum(QualityType))") == "list(enum(QualityType))"
 

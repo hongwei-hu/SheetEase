@@ -108,6 +108,7 @@
 | `list(float)` | 浮点数列表 |
 | `list(string)` | 字符串列表 |
 | `list(i18n)` | 本地化字符串引用列表 |
+| `list(pint)` | 正整数列表，元素会按 `pint` 规则校验，C# 字段生成 `List<int>` |
 | `list(bool)` | 布尔值列表 |
 | `list(enum(EnumName))` | 枚举列表 |
 | `unilist(int)` | 整数唯一性列表，所有元素必须互不重复，导出时若有重复则报错 |
@@ -118,6 +119,8 @@
 | `dict(string, float)` | 字符串键、浮点值字典 |
 | `dict(string, string)` | 字符串键值字典 |
 | `dict(int, string)` | 整数键、字符串值字典 |
+
+短类型别名会在集合类型中递归识别，例如 `list(pint)`、`unilist(nnfloat)`、`dict(string,list(i18n))`。生成 C# 字段时会转换为对应基础类型，例如 `List<int>`、`List<float>`、`Dictionary<string,List<Localization.LocalizedStringRef>>`。
 
 ### 枚举类型
 

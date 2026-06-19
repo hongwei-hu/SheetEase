@@ -106,6 +106,13 @@ class TestConvertListTypes:
             {"keyHash": 0, "source": "Hello", "context": "Menu"},
             {"keyHash": 0, "source": "Bye", "context": "Menu"},
         ]
+
+    def test_convert_list_positive_short_type(self):
+        """测试列表中正数短类型别名会转换并校验元素。"""
+        assert convert_to_type("list(pint)", "1,2,3") == [1, 2, 3]
+
+        with pytest.raises(ValueError, match="正数"):
+            convert_to_type("list(pint)", "1,0,3")
     
     def test_convert_empty_list(self):
         """测试空列表"""
@@ -152,6 +159,13 @@ class TestConvertUnilistTypes:
         result = convert_to_type("unilist(int){nonempty}", "1,2,3")
         assert result == [1, 2, 3]
 
+    def test_convert_unilist_nonnegative_short_type(self):
+        """测试唯一列表中非负短类型别名会转换并校验元素。"""
+        assert convert_to_type("unilist(nnfloat)", "0,1.5,2") == [0.0, 1.5, 2.0]
+
+        with pytest.raises(ValueError, match="非负数"):
+            convert_to_type("unilist(nnfloat)", "0,-1.5,2")
+
 
 class TestConvertDictTypes:
     """测试字典类型转换"""
@@ -165,6 +179,14 @@ class TestConvertDictTypes:
         """测试空字典"""
         result = convert_to_type("dict(int,string)", None)
         assert result == {}
+
+    def test_convert_dict_value_nested_short_type(self):
+        """测试字典值中的嵌套短类型别名会转换并校验元素。"""
+        result = convert_to_type("dict(string,list(pint))", "a:1,2\nb:3")
+        assert result == {"a": [1, 2], "b": [3]}
+
+        with pytest.raises(ValueError, match="正数"):
+            convert_to_type("dict(string,list(pint))", "a:1,0")
 
 
 class TestTypeValidation:
