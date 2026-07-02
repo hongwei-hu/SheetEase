@@ -6,7 +6,7 @@ import openpyxl
 import pytest
 
 from ExcelExportTool.core.worksheet_data import WorksheetData
-from ExcelExportTool.exceptions import ConstraintViolationError
+from ExcelExportTool.exceptions import ConstraintViolationError, DuplicateFieldError
 from ExcelExportTool.generation.enum_registry import get_enum_registry, reset_enum_registry
 
 
@@ -53,6 +53,23 @@ def test_constraint_violation_raises(monkeypatch, tmp_path):
     data = WorksheetData(ws)
     with pytest.raises(ConstraintViolationError):
         data.generate_json(str(tmp_path))
+
+
+def test_duplicate_actual_field_name_with_ref_prefix_raises(monkeypatch):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    ws = _build_min_sheet("DuplicateActualFieldCase")
+    _set_row(ws, 5, ["", "id", "itemId", "[Item/id]itemId"])
+    _set_row(ws, 1, ["", "备注id", "普通字段", "引用字段"])
+    _set_row(ws, 2, ["", "id", "普通字段", "引用字段"])
+    _set_row(ws, 3, ["", "int", "int", "int"])
+    _set_row(ws, 4, ["", "", "", ""])
+    _set_row(ws, 6, ["", None, None, None])
+    _set_row(ws, 7, ["", 1, 10, 20])
+
+    with pytest.raises(DuplicateFieldError, match="itemId"):
+        WorksheetData(ws)
 
 
 def test_default_value_applied_and_meta_tags(monkeypatch, tmp_path):

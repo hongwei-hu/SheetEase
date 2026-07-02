@@ -136,8 +136,8 @@ class WorksheetData:
         # 数据行
         self.row_data = list(worksheet.iter_rows(min_row=7, min_col=2))
 
-        # 重复字段检测
-        check_repeating_values(self.field_names)
+        # 重复字段检测：按导出时使用的真实字段名检查，避免带前缀字段静默覆盖同名字段。
+        check_repeating_values([extract_actual_field_name(name) for name in self.field_names])
 
         # 统计(仅用于汇总日志）
         self._field_total = len(self.field_names) - 1 if len(self.field_names) > 0 else 0  # 去掉首列主键列
