@@ -51,7 +51,7 @@ ProjectFolder/          # C# 工程与导出示例
 
 - 基础标量类型：`int`、`float`、`string/str`、`bool`、`nnint`、`nnfloat`、`pint`、`pfloat`
 - 内置短类型别名：`i18n` 等价于 `Localization.LocalizedStringRef`，用于本地化字符串引用
-- 容器类型：`list(...)`、`unilist(...)`、`dict(...)`
+- 容器类型：`list(...)`、`unilist(...)`、`dict(...)`、`pair(...)`
 - **自定义类型**：
   - **通用回退**（默认）：Excel 类型行填写全限定名，单元格用 `#` 分隔，导出为 `{ "__type": ..., "segments": [...] }`，C# 端自定义解析。
   - **专用解析器**（可选）：在 `data_processing.py` 注册解析器，导出结构更语义化，C# 端可直接映射。
@@ -61,6 +61,7 @@ ProjectFolder/          # C# 工程与导出示例
 - `list(...)`：普通列表，允许重复元素。例：`list(int)`、`list(string)`
 - `unilist(...)`：唯一性列表，确保列表中所有元素互不重复。如有重复元素则导出失败。例：`unilist(int)`、`unilist(string)`
 - `dict(...)`：字典/映射类型。例：`dict(int,string)`、`dict(string,int)`
+- `pair(...)`：单组键值对类型。例：`pair(string,int)`，单元格填写 `gold:100`，JSON 导出为 `{ "Key": "gold", "Value": 100 }`，C# 字段生成 `KeyValuePair<string,int>`；空单元格导出为 `null`
 
 ---
 

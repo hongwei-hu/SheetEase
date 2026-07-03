@@ -119,8 +119,9 @@
 | `dict(string, float)` | 字符串键、浮点值字典 |
 | `dict(string, string)` | 字符串键值字典 |
 | `dict(int, string)` | 整数键、字符串值字典 |
+| `pair(string, int)` | 单组键值对，单元格格式 `key:value`，JSON 导出为 `{ "Key": key, "Value": value }`，C# 字段生成 `KeyValuePair<string,int>` |
 
-短类型别名会在集合类型中递归识别，例如 `list(pint)`、`unilist(nnfloat)`、`dict(string,list(i18n))`。生成 C# 字段时会转换为对应基础类型，例如 `List<int>`、`List<float>`、`Dictionary<string,List<Localization.LocalizedStringRef>>`。
+短类型别名会在集合类型中递归识别，例如 `list(pint)`、`unilist(nnfloat)`、`dict(string,list(i18n))`、`pair(string,pfloat)`。生成 C# 字段时会转换为对应基础类型，例如 `List<int>`、`List<float>`、`Dictionary<string,List<Localization.LocalizedStringRef>>`、`KeyValuePair<string,float>`。
 
 ### 枚举类型
 
@@ -165,7 +166,7 @@ enum(MyEnumName)
 - 填写格式与数据行相同（同类型）。
 - 若为空且字段也为空，则根据类型使用零值：
   - `int` → `0`，`float` → `0.0`，`string` → `""`，`bool` → `false`
-  - `list(...)` → `[]`，`dict(...)` → `{}`
+  - `list(...)` → `[]`，`dict(...)` → `{}`，`pair(...)` → `null`
 
 ---
 
@@ -191,6 +192,25 @@ true,false,true
 atk:100,def:50,spd:80
 fire:1.5,water:0.8
 ```
+
+### pair 类型单元格格式
+
+用英文冒号 `:` 分隔唯一一组 Key 和 Value：
+```
+gold:100
+stageName:Tutorial
+```
+
+`pair(string,int)` 会导出为：
+
+```json
+{
+  "Key": "gold",
+  "Value": 100
+}
+```
+
+空单元格导出为 `null`。C# 字段会生成原生 `KeyValuePair<TKey,TValue>`，例如 `KeyValuePair<string,int>`。
 
 ---
 
@@ -285,6 +305,12 @@ fire:1.5,water:0.8
 - 键支持：`int`、`string`
 - 值支持：`int`、`float`、`string`、`bool`、`enum(EnumName)`
 - 键必须唯一，重复键会覆盖
+
+### pair 键值类型说明
+
+- 单元格只表示一组键值对，格式为 `key:value`
+- 空单元格导出为 `null`
+- 生成 C# 字段使用原生 `KeyValuePair<TKey,TValue>`，不需要额外自定义类型
 
 ---
 

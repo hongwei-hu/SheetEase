@@ -124,7 +124,7 @@ def convert_to_type(
     根据类型字符串转换值，支持基础类型、list、dict、枚举和自定义全限定类型。
     
     Args:
-        type_str: 类型字符串，如 "int", "list(int)", "dict(int,string)", "enum(EnumName)"
+        type_str: 类型字符串，如 "int", "list(int)", "dict(int,string)", "pair(string,int)", "enum(EnumName)"
         value: 要转换的值
         field: 字段名（用于错误提示）
         sheet: 表名（用于错误提示）
@@ -178,6 +178,8 @@ def convert_to_type(
             return _convert_dict_enum(normalized_type_str, enum_name, value, field, sheet, row, col)
         # 普通dict
         return _convert_dict(normalized_type_str, value, field, sheet, row, col)
+    elif kind == "pair":
+        return _convert_pair(normalized_type_str, value, field, sheet, row, col)
     
     # 基础类型
     if normalized_type_str in PRIMITIVE_TYPE_MAPPING:
@@ -185,6 +187,8 @@ def convert_to_type(
     # 容器（普通list/dict/unilist）
     if normalized_type_str.startswith("dict"):
         return _convert_dict(normalized_type_str, value, field, sheet, row, col)
+    if normalized_type_str.startswith("pair"):
+        return _convert_pair(normalized_type_str, value, field, sheet, row, col)
     if normalized_type_str.startswith("list") or normalized_type_str.startswith("unilist"):
         return _convert_list(normalized_type_str, value, field, sheet, row, col)
     # 自定义(简单策略: 至少包含一个 . 视为全限定类型)
@@ -291,6 +295,37 @@ def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = Non
             v = _convert_with_check(value_type_str, val, field=field, sheet=sheet, row=row, col=col)
             result[k] = v
     return result
+
+
+def _convert_pair(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> Optional[Dict[str, Any]]:
+    """转换为单组键值对类型，例如 pair(string,int)，JSON 形状匹配 C# KeyValuePair<TKey,TValue>。"""
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return None
+
+    type_match = re.search(r"\((.*)\)", type_str)
+    if not type_match:
+        return None
+    type_args = split_type_arguments(type_match.group(1))
+    if len(type_args) != 2:
+        return None
+
+    raw_text = str(value)
+    if ":" not in raw_text:
+        prefix = f"[{sheet}] " if sheet else ""
+        if row is not None:
+            prefix += f"行{row} "
+        if col is not None:
+            prefix += f"列{col} "
+        if field:
+            prefix += f"字段{field} "
+        raise ValueError(f"{prefix}pair 类型值必须使用 key:value 格式")
+
+    key_raw, value_raw = map(str.strip, raw_text.split(":", 1))
+    key_type_str, value_type_str = type_args
+    return {
+        "Key": _convert_with_check(key_type_str, key_raw, field=field, sheet=sheet, row=row, col=col),
+        "Value": _convert_with_check(value_type_str, value_raw, field=field, sheet=sheet, row=row, col=col),
+    }
 
 
 def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = None, row: int = None, col: int = None) -> List[Any]:
@@ -495,6 +530,8 @@ def _convert_with_check(type_str: str, value: Any, field: str = None, sheet: str
         return _convert_list(type_str, value, field=field, sheet=sheet, row=row, col=col)
     if type_str.startswith("dict"):
         return _convert_dict(type_str, value, field=field, sheet=sheet, row=row, col=col)
+    if type_str.startswith("pair"):
+        return _convert_pair(type_str, value, field=field, sheet=sheet, row=row, col=col)
     # 枚举类型
     enum_match = re.match(r"^enum\s*\(\s*([^)]+)\s*\)$", type_str, re.IGNORECASE)
     if enum_match:

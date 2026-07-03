@@ -11,6 +11,7 @@ _CONSTRAINT_BLOCK_RE = re.compile(r'^(.*?)(\{[^{}]*\})\s*$', re.DOTALL)
 ENUM_TYPE_RE = re.compile(r"^enum\s*\(\s*([^)]+)\s*\)$", re.IGNORECASE)
 LIST_TYPE_RE = re.compile(r"^list\s*\(\s*(.+)\s*\)$", re.IGNORECASE)
 DICT_TYPE_RE = re.compile(r"^dict\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", re.IGNORECASE)
+PAIR_TYPE_RE = re.compile(r"^pair\s*\(\s*([^,]+)\s*,\s*(.+)\s*\)$", re.IGNORECASE)
 TYPE_CALL_RE = re.compile(r"^([A-Za-z_]\w*)\s*\((.*)\)$", re.DOTALL)
 
 CONSTRAINED_SCALAR_TYPE_RULES = {
@@ -131,13 +132,13 @@ def _normalize_type_expr(type_str: str, normalize_short_scalars: bool) -> str:
         inner = _normalize_type_expr(args, normalize_short_scalars)
         return f"{container}({inner})"
 
-    if container == "dict":
+    if container in ("dict", "pair"):
         parts = split_type_arguments(args)
         if len(parts) != 2:
             return t
         key_type = _normalize_type_expr(parts[0], normalize_short_scalars)
         value_type = _normalize_type_expr(parts[1], normalize_short_scalars)
-        return f"dict({key_type},{value_type})"
+        return f"{container}({key_type},{value_type})"
 
     if container == "enum":
         return f"enum({args})"
@@ -173,7 +174,7 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
 
     Returns:
         (类型种类, 基础类型或枚举名)
-        类型种类: "scalar", "list", "dict", "enum", "unilist"
+        类型种类: "scalar", "list", "dict", "pair", "enum", "unilist"
     """
     t = strip_type_constraints(normalize_type_annotation((type_str or "").strip()))
 
@@ -216,6 +217,15 @@ def parse_type_annotation(type_str: str) -> Tuple[str, Optional[str]]:
             enum_name = value_enum_match.group(1).strip()
             return "dict", f"enum({enum_name})"
         return "dict", None
+
+    pair_match = PAIR_TYPE_RE.match(t)
+    if pair_match:
+        value_type = pair_match.group(2).strip()
+        value_enum_match = ENUM_TYPE_RE.match(value_type)
+        if value_enum_match:
+            enum_name = value_enum_match.group(1).strip()
+            return "pair", f"enum({enum_name})"
+        return "pair", None
     
     return "scalar", base_norm(t)
 
@@ -269,7 +279,7 @@ def validate_type_annotation(type_str: str) -> Tuple[bool, str]:
 def convert_type_to_csharp(type_str: str) -> str:
     """
     Convert a type annotation to C# representation.
-    Supports: list, unilist, dict, enum(EnumName)
+    Supports: list, unilist, dict, pair, enum(EnumName)
     """
     normalized = strip_type_constraints(normalize_type_annotation((type_str or "").strip()))
     return _convert_type_expr_to_csharp(normalized)
@@ -304,5 +314,13 @@ def _convert_type_expr_to_csharp(type_str: str) -> str:
         key_cs = _convert_type_expr_to_csharp(parts[0])
         value_cs = _convert_type_expr_to_csharp(parts[1])
         return f"Dictionary<{key_cs},{value_cs}>"
+
+    if container == "pair":
+        parts = split_type_arguments(args)
+        if len(parts) != 2:
+            return t
+        key_cs = _convert_type_expr_to_csharp(parts[0])
+        value_cs = _convert_type_expr_to_csharp(parts[1])
+        return f"KeyValuePair<{key_cs},{value_cs}>"
 
     return t

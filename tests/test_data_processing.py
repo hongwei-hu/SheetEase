@@ -189,6 +189,28 @@ class TestConvertDictTypes:
             convert_to_type("dict(string,list(pint))", "a:1,0")
 
 
+class TestConvertPairTypes:
+    """测试单组键值对类型转换"""
+
+    def test_convert_pair(self):
+        """测试 pair 类型转换为 Key/Value 结构"""
+        result = convert_to_type("pair(int,string)", "1:a")
+        assert result == {"Key": 1, "Value": "a"}
+
+    def test_convert_pair_empty_value_is_null(self):
+        """测试 pair 空值导出为 null"""
+        assert convert_to_type("pair(string,int)", None) is None
+        assert convert_to_type("pair(string,int)", "") is None
+
+    def test_convert_pair_value_nested_short_type(self):
+        """测试 pair 值中的嵌套短类型别名会转换并校验元素。"""
+        result = convert_to_type("pair(string,list(pint))", "a:1,2")
+        assert result == {"Key": "a", "Value": [1, 2]}
+
+        with pytest.raises(ValueError, match="正数"):
+            convert_to_type("pair(string,list(pint))", "a:1,0")
+
+
 class TestTypeValidation:
     """测试类型验证"""
     

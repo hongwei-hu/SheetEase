@@ -37,6 +37,12 @@ class TestValidateTypeAnnotation:
         assert validate_type_annotation("dict(int,string)") == (True, "")
         assert validate_type_annotation("dict(string,int)") == (True, "")
         assert validate_type_annotation("dict(string,list(pint))") == (True, "")
+
+    def test_valid_pair_types(self):
+        """测试有效的单组键值对类型"""
+        assert validate_type_annotation("pair(int,string)") == (True, "")
+        assert validate_type_annotation("pair(string,int)") == (True, "")
+        assert validate_type_annotation("pair(string,list(pint))") == (True, "")
     
     def test_valid_enum_types(self):
         """测试有效的枚举类型"""
@@ -149,6 +155,12 @@ class TestParseTypeAnnotation:
         assert kind == "list"
         assert base == "enum(TestEnum)"
 
+    def test_parse_pair(self):
+        """测试解析单组键值对类型"""
+        kind, base = parse_type_annotation("pair(string,int)")
+        assert kind == "pair"
+        assert base is None
+
 
 class TestConvertTypeToCsharp:
     """测试类型转换为C#"""
@@ -194,6 +206,13 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("dict(string,pfloat)") == "Dictionary<string,float>"
         assert convert_type_to_csharp("dict(string,list(pint))") == "Dictionary<string,List<int>>"
 
+    def test_convert_pair(self):
+        """测试转换单组键值对类型"""
+        assert convert_type_to_csharp("pair(int,string)") == "KeyValuePair<int,string>"
+        assert convert_type_to_csharp("pair(string,int)") == "KeyValuePair<string,int>"
+        assert convert_type_to_csharp("pair(string,pfloat)") == "KeyValuePair<string,float>"
+        assert convert_type_to_csharp("pair(string,list(pint))") == "KeyValuePair<string,List<int>>"
+
     def test_convert_types_with_constraints(self):
         """测试带约束的类型不会泄漏到 C# 类型声明中"""
         assert convert_type_to_csharp("int{min:1,max:5}") == "int"
@@ -201,6 +220,7 @@ class TestConvertTypeToCsharp:
         assert convert_type_to_csharp("list(int){nonempty,unique}") == "List<int>"
         assert convert_type_to_csharp("unilist(int){nonempty}") == "List<int>"
         assert convert_type_to_csharp("dict(string,int){minsize:1}") == "Dictionary<string,int>"
+        assert convert_type_to_csharp("pair(string,int)") == "KeyValuePair<string,int>"
         assert convert_type_to_csharp("enum(Rarity){nonempty}") == "Rarity"
 
 
@@ -213,6 +233,7 @@ class TestNormalizeTypeAnnotation:
         assert normalize_type_annotation("unilist(nnfloat)") == "unilist(float)"
         assert normalize_type_annotation("dict(string,pfloat)") == "dict(string,float)"
         assert normalize_type_annotation("dict(string,list(pint)){nonempty}") == "dict(string,list(int)){nonempty}"
+        assert normalize_type_annotation("pair(string,pfloat)") == "pair(string,float)"
 
     def test_normalize_preserves_custom_aliases_and_enums(self):
         assert normalize_type_annotation("list(i18n)") == "list(Localization.LocalizedStringRef)"
