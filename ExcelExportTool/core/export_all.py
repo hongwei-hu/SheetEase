@@ -181,6 +181,7 @@ def main():
         diff_only=diff_only,
         dry_run=dry_run,
         auto_cleanup=True,
+        hook_root=cfg.get('custom_hook_root') or None,
     )
 
 

@@ -63,6 +63,8 @@ from ..suggestions import (
 
 # 新增：可选字段统计开关（保持功能不变，默认打印一次汇总；若不需要可改为 False）
 _PRINT_FIELD_SUMMARY = True
+LOCALIZED_STRING_REF_TYPE = "Localization.LocalizedStringRef"
+LOCALIZATION_CONTEXT_SEPARATOR = "；"
 
 
 class WorksheetData:
@@ -213,6 +215,10 @@ class WorksheetData:
 
         # 建议日志仅需每张表输出一次（避免同时导出到多个目录时重复打印）。
         self._practice_suggestions_logged = False
+        # 解析结果会先保存在内存中，供工程级检查钩子读取；检查通过后才写入文件。
+        self._export_data: Optional[Dict[Any, Dict[str, Any]]] = None
+        self._export_json_content: Optional[str] = None
+        self._export_row_numbers: Dict[Any, int] = {}
 
         # 新增：自动检测接口字段类型，类型不符时警告并要求用户确认
         props = self._get_properties_dict()
@@ -338,8 +344,68 @@ class WorksheetData:
             return registry.get_enum_value(enum_type_name, item_text)
         return fallback_value
 
-    def generate_json(self, output_folder: str) -> None:
-        """将表格数据导出为 JSON 文件（支持单列 int 主键 / 自动生成键 / 以及组合键）。
+    def _generated_localization_context(self, field_name: str, row_key: Any, path_suffix: str = "") -> str:
+        json_file = JSON_FILE_PATTERN.format(name=self.name)
+        object_path = f"{row_key}{path_suffix}"
+        return f"配置表 {json_file} 字段 {field_name}，对象路径 {object_path}"
+
+    def _type_contains_localized_string_ref(self, type_str: str) -> bool:
+        kind, base = parse_type_annotation(type_str)
+        if kind in ("scalar", "list", "unilist"):
+            return base == LOCALIZED_STRING_REF_TYPE
+        # dict(...) and future nested forms are intentionally handled by a
+        # normalized text check so custom container support keeps context data.
+        return LOCALIZED_STRING_REF_TYPE in convert_type_to_csharp(type_str)
+
+    def _merge_localization_context(self, manual_context: Any, generated_context: str) -> str:
+        manual_text = str(manual_context).strip() if manual_context not in (None, "") else ""
+        if not manual_text:
+            return generated_context
+        if generated_context in manual_text:
+            return manual_text
+        return f"{manual_text}{LOCALIZATION_CONTEXT_SEPARATOR}{generated_context}"
+
+    def _with_generated_localization_context(
+        self,
+        value: Any,
+        type_str: str,
+        field_name: str,
+        row_key: Any,
+    ) -> Any:
+        if not self._type_contains_localized_string_ref(type_str):
+            return value
+
+        def enrich_one(item: Any, path_suffix: str = "") -> Any:
+            if isinstance(item, dict) and "source" in item:
+                enriched = dict(item)
+                generated_context = self._generated_localization_context(field_name, row_key, path_suffix)
+                enriched["context"] = self._merge_localization_context(
+                    enriched.get("context"),
+                    generated_context,
+                )
+                return enriched
+            if isinstance(item, list):
+                return [enrich_one(child, f"{path_suffix}[{idx}]") for idx, child in enumerate(item)]
+            if isinstance(item, dict):
+                return {key: enrich_one(child, f"{path_suffix}.{key}") for key, child in item.items()}
+            return item
+
+        return enrich_one(value)
+
+    @property
+    def export_data(self) -> Optional[Dict[Any, Dict[str, Any]]]:
+        """返回最近一次构建的导出数据；调用方不得修改该对象。"""
+        return self._export_data
+
+    @property
+    def export_row_numbers(self) -> Dict[Any, int]:
+        """返回导出主键到 Excel 原始行号的映射。"""
+        return dict(self._export_row_numbers)
+
+    def build_export_data(self) -> Dict[Any, Dict[str, Any]]:
+        """解析并校验表格，构建内存数据，但不写入 JSON 文件。
+
+        支持单列 int 主键 / 自动生成键 / 以及组合键。
         这里同时确保给每条记录填充 info.id：
             - 字符串主键（枚举）：id = 序号（枚举 int 值）
             - 组合键：id = key1*MULTIPLIER + key2
@@ -360,6 +426,7 @@ class WorksheetData:
                 field_tags_meta[self._actual_field_name(i)] = {"tags": tags}
 
         data: Dict[Any, Dict[str, Any]] = {}
+        self._export_row_numbers = {}
         # 构建 _meta：包含字段标签和来源 Excel 文件名
         meta: Dict[str, Any] = {}
         if field_tags_meta:
@@ -417,6 +484,7 @@ class WorksheetData:
             if row_key in used_keys:
                 raise DuplicatePrimaryKeyError(row_key, used_keys[row_key], excel_row)
             used_keys[row_key] = excel_row
+            self._export_row_numbers[row_key] = excel_row
 
             # 保持列顺序：按 Excel 顺序构建
             if JSON_ID_FIRST:
@@ -461,6 +529,7 @@ class WorksheetData:
                     if violations:
                         raise ConstraintViolationError(violations[0])
 
+                value = self._with_generated_localization_context(value, type_str, data_name, row_key)
                 row_obj[data_name] = value
 
                 if suggestion_collector is not None:
@@ -527,12 +596,27 @@ class WorksheetData:
         except Exception:
             # 不要阻塞写入：继续写文件并记录日志
             log_warn(f"[{self.name}] 无法计算序列化后的 JSON 大小")
+        self._export_data = data
+        self._export_json_content = file_content
+        if _PRINT_FIELD_SUMMARY:
+            record_count = len(data) - (1 if "_meta" in data else 0)
+            log_info(f"[{self.name}] 解析完成: 行数={record_count} required缺失={required_missing_count}")
+        return data
+
+    def write_json(self, output_folder: str) -> None:
+        """将已构建且通过检查的数据写入指定目录。"""
+        if self._export_json_content is None:
+            self.build_export_data()
         from ..generation.cs_generation import write_to_file
         file_path = os.path.join(output_folder, JSON_FILE_PATTERN.format(name=self.name))
-        write_to_file(file_content, file_path)
-
+        write_to_file(self._export_json_content or "{}", file_path)
         if _PRINT_FIELD_SUMMARY:
-            log_info(f"[{self.name}] 导出完成: 行数={len(data)} required缺失={required_missing_count}")
+            log_info(f"[{self.name}] JSON 导出完成: {file_path}")
+
+    def generate_json(self, output_folder: str) -> None:
+        """兼容旧调用：构建数据后立即写入 JSON。"""
+        self.build_export_data()
+        self.write_json(output_folder)
 
     def run_reference_checks(self, search_dirs: List[str], sheet_to_file_map: Optional[Dict[str, str]] = None) -> None:
         """执行引用检查"""

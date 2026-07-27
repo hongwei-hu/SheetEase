@@ -91,6 +91,59 @@ def test_default_value_applied_and_meta_tags(monkeypatch, tmp_path):
     assert content["_meta"]["fields"]["icon"]["tags"] == ["asset:png"]
 
 
+def test_build_export_data_does_not_write_until_explicit_write(monkeypatch, tmp_path):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    ws = _build_min_sheet("DeferredCase")
+    _set_row(ws, 7, ["", 1, 9])
+
+    data = WorksheetData(ws)
+    built = data.build_export_data()
+
+    assert built[1]["value"] == 9
+    assert data.export_row_numbers == {1: 7}
+    assert not (tmp_path / "DeferredCaseConfig.json").exists()
+
+    data.write_json(str(tmp_path))
+    assert (tmp_path / "DeferredCaseConfig.json").exists()
+
+
+def test_i18n_field_gets_generated_localization_context(monkeypatch, tmp_path):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    ws = _build_min_sheet("LocalizationCase")
+    _set_row(ws, 3, ["", "int", "i18n"])
+    _set_row(ws, 7, ["", 1, "Hello"])
+
+    data = WorksheetData(ws)
+    data.generate_json(str(tmp_path))
+
+    content = json.loads((tmp_path / "LocalizationCaseConfig.json").read_text(encoding="utf-8"))
+    assert content["1"]["value"] == {
+        "source": "Hello",
+        "context": "配置表 LocalizationCaseConfig.json 字段 value，对象路径 1",
+    }
+
+
+def test_i18n_manual_context_is_merged_with_generated_context(monkeypatch, tmp_path):
+    import ExcelExportTool.core.worksheet_data as mod
+    monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
+
+    ws = _build_min_sheet("LocalizationCase")
+    _set_row(ws, 3, ["", "int", "Localization.LocalizedStringRef"])
+    _set_row(ws, 7, ["", 1, "Hello#Menu label"])
+
+    data = WorksheetData(ws)
+    data.generate_json(str(tmp_path))
+
+    content = json.loads((tmp_path / "LocalizationCaseConfig.json").read_text(encoding="utf-8"))
+    context = content["1"]["value"]["context"]
+    assert context.startswith("Menu label")
+    assert "配置表 LocalizationCaseConfig.json 字段 value，对象路径 1" in context
+
+
 def test_optional_enum_field_allows_empty_and_emits_nullable_type(monkeypatch, tmp_path):
     import ExcelExportTool.core.worksheet_data as mod
     monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)

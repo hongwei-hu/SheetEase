@@ -92,14 +92,14 @@ def _generic_custom_type_object(full_name: str, raw: Optional[str]):
 def _parse_localized_string_ref(raw: Optional[str]):
     """默认示例: Localization.LocalizedStringRef 形如 文本#上下文 (#可省)."""
     if raw is None or raw == "":
-        return {"keyHash": 0, "source": "", "context": ""}
+        return {"source": "", "context": ""}
     txt = raw.replace("\r\n", "\n")
     if "#" in txt:
         src, ctx = txt.split("#", 1)
     else:
         src, ctx = txt, ""
-    src = src.strip(); ctx = ctx.strip()
-    return {"keyHash": 0, "source": src, "context": ctx}
+    ctx = ctx.strip()
+    return {"source": src, "context": ctx}
 
 # 注册示例（可通过外部扩展继续添加）
 custom_type_registry.register("Localization.LocalizedStringRef", _parse_localized_string_ref)

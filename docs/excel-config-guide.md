@@ -1,6 +1,7 @@
 # SheetEase Excel 配置使用手册
 
 > 本手册面向负责填写或维护 Excel 数据表的策划/程序人员。
+> 工程专属的跨表与业务检查可通过 GUI 中可选的“自定义检查钩子目录”接入。钩子未配置时不会运行；详细规范参见 [工程自定义检查钩子开发手册](custom-hooks.md)。
 
 ---
 
@@ -98,7 +99,7 @@
 
 | 类型写法 | 展开类型 | 说明 |
 |---------|---------|------|
-| `i18n` | `Localization.LocalizedStringRef` | 本地化字符串引用，单元格可填写 `文本#上下文`，上下文可省略 |
+| `i18n` | `Localization.LocalizedStringRef` | 本地化字符串引用，单元格可填写普通文本；也可填写 `文本#手动上下文`，手动上下文可省略 |
 
 ### 集合类型
 
@@ -122,6 +123,19 @@
 | `pair(string, int)` | 单组键值对，单元格格式 `key:value`，JSON 导出为 `{ "Key": key, "Value": value }`，C# 字段生成 `KeyValuePair<string,int>` |
 
 短类型别名会在集合类型中递归识别，例如 `list(pint)`、`unilist(nnfloat)`、`dict(string,list(i18n))`、`pair(string,pfloat)`。生成 C# 字段时会转换为对应基础类型，例如 `List<int>`、`List<float>`、`Dictionary<string,List<Localization.LocalizedStringRef>>`、`KeyValuePair<string,float>`。
+
+### 本地化上下文自动生成
+
+`i18n` / `Localization.LocalizedStringRef` 字段导出到 JSON 时会自动生成结构化上下文，格式包含配置 JSON 文件名、字段名和对象路径：
+
+```json
+{
+  "source": "显示文本",
+  "context": "配置表 ItemConfig.json 字段 l_name，对象路径 1"
+}
+```
+
+策划侧通常只需要在单元格填写显示文本。若确实需要补充人工说明，可以填写 `显示文本#手动上下文`；导出时 `context` 会合并为“手动上下文 + 自动生成上下文”，供本地化管线收集翻译文本时使用。
 
 ### 枚举类型
 

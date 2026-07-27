@@ -28,6 +28,7 @@ try:  # noqa: F401
     from ExcelExportTool.parsing import excel_processing as _xp_collect  # type: ignore
     from ExcelExportTool.utils import type_utils as _tu_collect  # type: ignore
     from ExcelExportTool.validation import constraint_checker as _cc_collect  # type: ignore
+    from ExcelExportTool.hooks import runner as _hooks_collect  # type: ignore
     from ExcelExportTool.utils import naming_config as _nc_collect  # type: ignore
     from ExcelExportTool.utils import naming_utils as _nu_collect  # type: ignore
     from ExcelExportTool.utils import log as _log_collect  # type: ignore
@@ -40,6 +41,7 @@ except Exception:  # 在开发环境无影响
     _xp_collect = None  # type: ignore
     _tu_collect = None  # type: ignore
     _cc_collect = None  # type: ignore
+    _hooks_collect = None  # type: ignore
     _nc_collect = None  # type: ignore
     _nu_collect = None  # type: ignore
     _log_collect = None  # type: ignore
@@ -145,6 +147,9 @@ def validate_config(cfg: dict) -> tuple[bool, str]:
                 return False, f"无法创建输出目录: {cfg[k]}"
         if not _is_writable_dir(cfg[k]):
             return False, f"输出目录不可写: {cfg[k]}"
+    hook_root = str(cfg.get('custom_hook_root', '') or '').strip()
+    if hook_root and not os.path.isdir(hook_root):
+        return False, f"自定义检查钩子目录不存在: {hook_root}"
     return True, ''
 
 
@@ -238,6 +243,7 @@ class MainWindow:
             'output_project': tk.StringVar(value=(init_cfg or {}).get('output_project', '')),
             'cs_output': tk.StringVar(value=(init_cfg or {}).get('cs_output', '')),
             'enum_output': tk.StringVar(value=(init_cfg or {}).get('enum_output', '')),
+            'custom_hook_root': tk.StringVar(value=(init_cfg or {}).get('custom_hook_root', '')),
             'show_key_logs': tk.BooleanVar(value=bool((init_cfg or {}).get('ui', {}).get('show_key_logs', True)) if isinstance((init_cfg or {}).get('ui', {}), dict) else True),
         }
         self._recent_paths: dict[str, list[str]] = dict((init_cfg or {}).get('recent_paths', {})) if isinstance((init_cfg or {}).get('recent_paths', {}), dict) else {}
@@ -500,6 +506,8 @@ class MainWindow:
         self._add_count_label(basic_tab, 5, 'cs_output')
         self._add_row(basic_tab, 6, '枚举输出目录', 'enum_output')
         self._add_count_label(basic_tab, 7, 'enum_output')
+        self._add_row(basic_tab, 8, '自定义检查钩子目录（可选）', 'custom_hook_root')
+        self._add_count_label(basic_tab, 9, 'custom_hook_root')
 
         btns = tk.Frame(win)
         btns.grid(row=1, column=0, sticky='e', padx=12, pady=(0, 12))
@@ -545,6 +553,7 @@ class MainWindow:
             'output_project': self.vars['output_project'].get().strip(),
             'cs_output': self.vars['cs_output'].get().strip(),
             'enum_output': self.vars['enum_output'].get().strip(),
+            'custom_hook_root': self.vars['custom_hook_root'].get().strip(),
             'auto_run': bool(self.vars['auto_run'].get()),
             'recent_paths': self._recent_paths,
             'ui': {
@@ -692,7 +701,7 @@ class MainWindow:
         self._refresh_count_for(key)
 
     def _record_core_recent_paths(self):
-        for key in ['excel_root', 'output_project', 'cs_output', 'enum_output']:
+        for key in ['excel_root', 'output_project', 'cs_output', 'enum_output', 'custom_hook_root']:
             self._record_recent_path(key, str(self.vars[key].get()))
 
     def _add_file_row(self, parent: tk.Misc, row: int, label: str, key: str):
@@ -720,7 +729,7 @@ class MainWindow:
         self.count_labels[key] = lbl
 
     def _refresh_counts(self):
-        for k in ['excel_root', 'output_project', 'cs_output', 'enum_output']:
+        for k in ['excel_root', 'output_project', 'cs_output', 'enum_output', 'custom_hook_root']:
             self._refresh_count_for(k)
 
     def _refresh_count_for(self, key: str):
@@ -802,6 +811,17 @@ class MainWindow:
             if not self._is_under_assets(path):
                 return '该目录不在 Unity 工程的 Assets 子文件夹内，建议放在 Assets 下', red
             return (f'该目录包含{n}个脚本', normal)
+        elif key == 'custom_hook_root':
+            if not path:
+                return '未配置：导出时将跳过工程自定义检查', normal
+            if not p or not p.is_dir():
+                return '钩子目录不存在或不可访问', red
+            try:
+                from ExcelExportTool.hooks.runner import load_hook_summary
+                names = load_hook_summary(str(p))
+                return (f'已加载 {len(names)} 个检查：' + ('、'.join(names) if names else '无启用项'), normal)
+            except Exception as exc:
+                return (f'钩子配置无效：{exc}', red)
         return ('', normal)
 
     @staticmethod
@@ -966,6 +986,7 @@ class MainWindow:
                         diff_only=True,
                         dry_run=False,
                         auto_cleanup=True,
+                        hook_root=cfg.get('custom_hook_root') or None,
                     )
                     elapsed_sec = max(0.0, time.perf_counter() - started)
                     code = 0
@@ -1013,6 +1034,7 @@ def run_export_with_cfg(cfg: dict) -> int:
         diff_only=True,
         dry_run=False,
         auto_cleanup=True,
+        hook_root=cfg.get('custom_hook_root') or None,
     )
     return 0
 

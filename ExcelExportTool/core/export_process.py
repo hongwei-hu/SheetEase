@@ -18,6 +18,7 @@ from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTy
 from ..generation.enum_registry import get_enum_registry, reset_enum_registry
 from ..generation.stable_enum_values import STABLE_ENUM_VALUES_FILENAME, StableEnumValueAllocator
 from ..utils.naming_config import ENUM_KEYS_SUFFIX
+from ..hooks.runner import run_custom_hooks
 REPORT = None  # 报表文件输出已移除
 CS_ENUM_INT_MIN = -2147483648
 CS_ENUM_INT_MAX = 2147483647
@@ -127,6 +128,7 @@ def process_excel_file(
     csfile_output_folder: Optional[str],
     enum_output_folder: Optional[str],
     workbook=None,
+    defer_outputs: bool = False,
 ) -> Optional[WorksheetData]:
     """
     处理单个Excel文件，生成JSON和C#代码。
@@ -168,17 +170,21 @@ def process_excel_file(
     except Exception:
         pass
 
-    if output_client_folder:
-        main_sheet_data.generate_json(output_client_folder)
-    if output_project_folder:
-        main_sheet_data.generate_json(output_project_folder)
-    if csfile_output_folder:
-        main_sheet_data.generate_script(csfile_output_folder)
+    if defer_outputs:
+        main_sheet_data.build_export_data()
+    else:
+        if output_client_folder:
+            main_sheet_data.generate_json(output_client_folder)
+        if output_project_folder:
+            main_sheet_data.generate_json(output_project_folder)
+        if csfile_output_folder:
+            main_sheet_data.generate_script(csfile_output_folder)
 
     # 注意：枚举导出已在第一阶段完成，这里不再重复导出
 
     file_sheet_map[excel_path.name] = main_sheet.title
-    log_info(f"完成 {excel_path.name} \n")
+    action = "解析完成" if defer_outputs else "完成"
+    log_info(f"{action} {excel_path.name} \n")
     if opened_here:
         try:
             wb.close()
@@ -233,6 +239,7 @@ def batch_excel_to_json(
     diff_only: bool = True,
     dry_run: bool = False,
     auto_cleanup: bool = True,
+    hook_root: Optional[str] = None,
 ) -> None:
     """
     批量处理Excel文件，生成JSON和C#代码。
@@ -250,6 +257,7 @@ def batch_excel_to_json(
         diff_only: 是否仅在有差异时写入文件
         dry_run: 是否为试运行模式（不实际写入文件）
         auto_cleanup: 是否自动清理未使用的文件
+        hook_root: 可选的工程自定义检查钩子目录；为空时不运行自定义检查
     
     Raises:
         ExportError: 导出过程中的各种错误
@@ -501,33 +509,6 @@ def batch_excel_to_json(
         
         # workbook 延迟到第二阶段后统一关闭，避免重复加载
 
-    if not dry_run:
-        stable_enum_allocator.save()
-    
-    # 导出所有枚举文件
-    if enum_output_folder and enum_files_to_export:
-        # 最终检查：确保没有重复的枚举名（虽然register_enum已经检查过，但这里再次确认）
-        enum_names_seen = {}
-        for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
-            if enum_type_name in enum_names_seen:
-                existing_source = enum_names_seen[enum_type_name]
-                raise ExportError(
-                    f"发现重复的枚举定义: {enum_type_name}\n"
-                    f"已有定义（来源: {existing_source}）\n"
-                    f"重复定义（来源: {excel_path.name}）\n"
-                    f"任何情况下都不应该导出两个相同的枚举。"
-                )
-            enum_names_seen[enum_type_name] = excel_path.name
-        
-        log_info(f"开始导出 {len(enum_files_to_export)} 个枚举...")
-        for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
-            enum_names = [item[0] for item in enum_data]
-            enum_values = [item[1] for item in enum_data]
-            generate_enum_file(enum_type_name, enum_names, enum_values, remarks, "Data.TableScript", enum_output_folder)
-            log_info(f"已导出枚举: {enum_type_name}")
-    elif enum_output_folder:
-        log_info("未发现需要导出的枚举")
-    
     # ========== 第二阶段：处理表格数据 ==========
     log_sep("第二阶段：处理表格数据")
     sheets: list[WorksheetData] = []
@@ -547,6 +528,7 @@ def batch_excel_to_json(
                     csfile_output_folder,
                     enum_output_folder,
                     workbook=workbook_cache.get(excel_path),
+                    defer_outputs=True,
                 )
                 if ws is not None:
                     sheets.append(ws)
@@ -568,6 +550,59 @@ def batch_excel_to_json(
                 wb.close()
             except Exception:
                 pass
+
+    # ========== 第三阶段：工程自定义检查 ==========
+    # 不配置钩子目录时完全跳过；配置后，任何 error 都会在实际文件写入前中断导出。
+    if hook_root and str(hook_root).strip():
+        run_custom_hooks(
+            str(hook_root).strip(),
+            sheets,
+            source_folder,
+            config={
+                "source_folder": source_folder,
+                "output_client_folder": output_client_folder,
+                "output_project_folder": output_project_folder,
+                "csfile_output_folder": csfile_output_folder,
+                "enum_output_folder": enum_output_folder,
+                "diff_only": diff_only,
+                "dry_run": dry_run,
+            },
+        )
+
+    # ========== 第四阶段：检查通过后写入产物 ==========
+    log_sep("写入导出产物")
+    if not dry_run:
+        stable_enum_allocator.save()
+
+    if enum_output_folder and enum_files_to_export:
+        enum_names_seen = {}
+        for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
+            if enum_type_name in enum_names_seen:
+                existing_source = enum_names_seen[enum_type_name]
+                raise ExportError(
+                    f"发现重复的枚举定义: {enum_type_name}\n"
+                    f"已有定义（来源: {existing_source}）\n"
+                    f"重复定义（来源: {excel_path.name}）\n"
+                    f"任何情况下都不应该导出两个相同的枚举。"
+                )
+            enum_names_seen[enum_type_name] = excel_path.name
+
+        log_info(f"开始导出 {len(enum_files_to_export)} 个枚举...")
+        for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
+            enum_names = [item[0] for item in enum_data]
+            enum_values = [item[1] for item in enum_data]
+            generate_enum_file(enum_type_name, enum_names, enum_values, remarks, "Data.TableScript", enum_output_folder)
+            log_info(f"已导出枚举: {enum_type_name}")
+    elif enum_output_folder:
+        log_info("未发现需要导出的枚举")
+
+    for ws in sheets:
+        if output_client_folder:
+            ws.write_json(output_client_folder)
+        if output_project_folder:
+            ws.write_json(output_project_folder)
+        if csfile_output_folder:
+            ws.generate_script(csfile_output_folder)
 
     # 统一引用检查（导出后）
     if sheets and not aborted:
