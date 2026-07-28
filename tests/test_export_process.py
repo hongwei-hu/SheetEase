@@ -60,6 +60,23 @@ def test_process_excel_file_calls_generate_methods(monkeypatch, tmp_path):
     assert result.generated_script == 1
 
 
+def test_process_excel_file_open_failure_is_fatal(monkeypatch):
+    def fail_open(*args, **kwargs):
+        raise OSError("workbook is locked or corrupted")
+
+    monkeypatch.setattr(export_process.openpyxl, "load_workbook", fail_open)
+
+    with pytest.raises(ExportError, match="Excel 文件无法打开"):
+        export_process.process_excel_file(
+            excel_path=Path("Broken.xlsx"),
+            file_sheet_map={},
+            output_client_folder=None,
+            output_project_folder=None,
+            csfile_output_folder=None,
+            enum_output_folder=None,
+        )
+
+
 def test_batch_excel_to_json_warns_when_no_files(monkeypatch, tmp_path):
     warned = []
     monkeypatch.setattr(export_process, "log_warn", lambda msg, **kwargs: warned.append(msg))

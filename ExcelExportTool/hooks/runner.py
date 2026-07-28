@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from ..exceptions import ExportError
+from ..exceptions import ExportError, HookValidationError
 from ..utils.log import log_error, log_info, log_sep, log_warn
 from .loader import hook_import_path, load_checks
 from .models import HookContext, HookIssue, build_hook_context
@@ -88,5 +88,8 @@ def run_custom_hooks(
     warnings = sum(issue.severity == "warning" for issue in issues)
     log_info(f"自定义检查完成: 错误 {errors}，警告 {warnings}，总问题 {len(issues)}")
     if errors:
-        raise ExportError(f"自定义检查未通过，共 {errors} 个错误；未写入本次导出文件")
+        raise HookValidationError(
+            f"自定义检查未通过，共 {errors} 个错误；未写入本次导出文件",
+            issues=issues,
+        )
     return issues

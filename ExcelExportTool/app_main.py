@@ -1052,5 +1052,15 @@ def main():
     return 0
 
 
+def _is_headless_request(argv=None) -> bool:
+    """仅在显式请求时把打包程序切换到 CLI，默认启动行为仍为 GUI。"""
+    args = sys.argv[1:] if argv is None else argv
+    return '--headless' in args
+
+
 if __name__ == '__main__':
+    if _is_headless_request():
+        from ExcelExportTool.core.export_all import main as cli_main
+
+        sys.exit(cli_main(sys.argv[1:]))
     sys.exit(main())

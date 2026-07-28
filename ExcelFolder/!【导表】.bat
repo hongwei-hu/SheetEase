@@ -13,6 +13,9 @@ rem 切换到项目根，保证包导入正常
 pushd "..\"
 
 %PY% -m ExcelExportTool.export_all --config "%HERE%sheet_config.json"
+set "rc=%ERRORLEVEL%"
 
+popd
+if not "%rc%"=="0" echo [Error] 导表失败，退出码: %rc%
 pause
 exit /b %rc%

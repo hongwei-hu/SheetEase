@@ -32,6 +32,14 @@ class ExportError(Exception):
                 parts.append("(" + ", ".join(ctx_parts) + ")")
         self.args = (" ".join(parts),)
 
+
+class HookValidationError(ExportError):
+    """工程自定义检查未通过，并保留可供自动化报告消费的问题明细。"""
+
+    def __init__(self, message: str, issues=None):
+        super().__init__(message)
+        self.issues = list(issues or [])
+
 class DuplicateFieldError(ExportError):
     def __init__(self, fields):
         super().__init__(f"发现重复字段: {sorted(fields)}")

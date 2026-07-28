@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import os
 import shutil
 import traceback
+from dataclasses import asdict, dataclass, field
 from .worksheet_data import WorksheetData
 from ..utils.user_utils import user_confirm
 from ..generation.cs_generation import generate_enum_file_from_sheet, generate_enum_file, get_created_files, set_output_options
@@ -24,6 +25,26 @@ CS_ENUM_INT_MIN = -2147483648
 CS_ENUM_INT_MAX = 2147483647
 SHEETEASE_METADATA_DIR = ".sheetease"
 STABLE_ENUM_VALUES_PROJECT_FILENAME = "stable_enum_values.json"
+
+
+@dataclass(frozen=True)
+class ExportSummary:
+    """一次完整导出或检查的机器可读摘要。"""
+
+    excel_files: int
+    eligible_files: int
+    processed_files: int
+    skipped_files: int
+    generated_files: tuple[str, ...]
+    generated_json_bytes: int
+    duration_seconds: float
+    diff_only: bool
+    dry_run: bool
+    hook_issues: tuple[dict, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict:
+        """转换为可直接写入 JSON 的字典。"""
+        return asdict(self)
 
 
 def _parse_manual_enum_value(raw_value, excel_name: str, sheet_name: str, row_index: int, item_name: str) -> Optional[int]:
@@ -156,7 +177,10 @@ def process_excel_file(
             opened_here = True
         except Exception as e:
             log_error(f"打开失败: {green_filename(excel_path.name)} -> {e}")
-            return None
+            raise ExportError(
+                f"Excel 文件无法打开: {excel_path.name} -> {e}",
+                context={"file": excel_path.name},
+            ) from e
     main_sheet = wb.worksheets[0]
     if main_sheet.title in file_sheet_map.values():
         dup = next(f for f, s in file_sheet_map.items() if s == main_sheet.title)
@@ -240,7 +264,7 @@ def batch_excel_to_json(
     dry_run: bool = False,
     auto_cleanup: bool = True,
     hook_root: Optional[str] = None,
-) -> None:
+) -> ExportSummary:
     """
     批量处理Excel文件，生成JSON和C#代码。
     
@@ -305,6 +329,10 @@ def batch_excel_to_json(
     # 反查 map: sheet 名 -> excel 文件名（用于日志显示目标 Excel 文件）
     sheet_to_file_map: dict[str, str] = {}
     excel_files = list(Path(source_folder).rglob("*.xlsx"))
+    eligible_files = [
+        path for path in excel_files
+        if path.name and path.name[0].isupper() and not path.name.startswith("~$")
+    ]
     workbook_cache: dict[Path, object] = {}
 
     if not excel_files:
@@ -553,8 +581,9 @@ def batch_excel_to_json(
 
     # ========== 第三阶段：工程自定义检查 ==========
     # 不配置钩子目录时完全跳过；配置后，任何 error 都会在实际文件写入前中断导出。
+    hook_issues = []
     if hook_root and str(hook_root).strip():
-        run_custom_hooks(
+        hook_issues = run_custom_hooks(
             str(hook_root).strip(),
             sheets,
             source_folder,
@@ -658,3 +687,16 @@ def batch_excel_to_json(
         log_error(f"导表已中止: 字段命名不合法，已停止后续处理。成功 {ok}，跳过 {skip}，总耗时 {elapsed:.2f}s，总生成 JSON 大小: {total_json_str}")
     else:
         log_success(f"成功 {ok}，跳过 {skip}，总耗时 {elapsed:.2f}s，总生成 JSON 大小: {total_json_str}. diff_only:{diff_only}, dry_run:{dry_run}")
+
+    return ExportSummary(
+        excel_files=len(excel_files),
+        eligible_files=len(eligible_files),
+        processed_files=ok,
+        skipped_files=skip,
+        generated_files=tuple(sorted(set(get_created_files()))),
+        generated_json_bytes=total_json_bytes,
+        duration_seconds=round(elapsed, 6),
+        diff_only=diff_only,
+        dry_run=dry_run,
+        hook_issues=tuple(asdict(issue) for issue in hook_issues),
+    )

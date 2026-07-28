@@ -40,6 +40,9 @@ def set_output_options(diff_only: bool = True, dry_run: bool = False) -> None:
     global _DIFF_ONLY, _DRY_RUN
     _DIFF_ONLY = diff_only
     _DRY_RUN = dry_run
+    # 每次导出都是独立运行。GUI 允许在同一进程中重复导出，若不清空会把上次
+    # 的产物误算入本次报告与清理白名单。
+    _created_files.clear()
 
 def get_created_files():
     """推荐使用的新命名（旧 get_create_files 仍兼容）"""

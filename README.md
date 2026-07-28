@@ -48,6 +48,7 @@ GUI 的“基础配置”中可以选择“自定义检查钩子目录（可选�
 
 1. **导出方式**  
   命令行可双击 `ExcelFolder/!【导表】.bat`；GUI 可运行 `ExcelExportTool/app_main.py`（开发环境）或打包后的 `dist/SheetEase.exe`。路径选择、配置保存、运行导表、日志查看均在 GUI 内完成。
+  自动化、CI 或代理检查使用 `ExcelFolder/Invoke-SheetEase.ps1`，报告格式与退出码见 [自动化导出与检查](docs/automation-export.md)。
 
 1. **C# 集成**  
   将导出的 JSON 与 C# 文件加入项目，启动时加载即可。
