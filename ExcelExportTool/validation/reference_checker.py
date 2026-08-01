@@ -5,7 +5,7 @@
 """
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ..utils.log import log_warn, log_error, log_info
 from ..utils.naming_config import (
@@ -78,13 +78,22 @@ class ReferenceChecker:
         self._pending_ref_checks.clear()
         self._reference_checks_done = False
     
-    def run_checks(self, search_dirs: List[str], sheet_to_file_map: Optional[Dict[str, str]] = None) -> None:
-        """执行引用检查"""
+    def run_checks(
+        self,
+        search_dirs: List[str],
+        sheet_to_file_map: Optional[Dict[str, str]] = None,
+        export_data_by_sheet: Optional[Mapping[str, Mapping[Any, Any]]] = None,
+    ) -> int:
+        """执行引用检查并返回错误数。
+
+        批量导出时应传入本轮已解析的内存数据，避免 dry-run 或旧 JSON
+        让引用检查得到过期结论。未传入时保留读取磁盘 JSON 的兼容行为。
+        """
         # 若没有待检查项或已检查过，直接返回，避免重复日志
         if self._reference_checks_done:
-            return
+            return 0
         if not self._pending_ref_checks:
-            return
+            return 0
         
         cache: Dict[Tuple[str, str], Optional[Tuple[set, Optional[str], str]]] = {}
         # JSON 对象缓存与缺失缓存，避免重复打开文件与重复查找
@@ -109,6 +118,16 @@ class ReferenceChecker:
 
             # 读取或复用 JSON 对象
             obj = json_obj_cache.get(sheet)
+            if obj is None:
+                if export_data_by_sheet is not None:
+                    obj = export_data_by_sheet.get(sheet)
+                    if obj is None:
+                        json_missing.add(sheet)
+                        if field is not None:
+                            cache[(sheet, field)] = None
+                        return None
+                    json_obj_cache[sheet] = obj
+
             if obj is None:
                 path = None
                 for d in filter(None, search_dirs):
@@ -165,7 +184,7 @@ class ReferenceChecker:
                 cache[(sheet, field)] = cache[key_rf]
             return cache[key_rf]
 
-        any_error = False
+        error_count = 0
 
         # 小助手：统一构建日志上下文（源/目标/标记）
         def _ctx_parts(ref_sheet: str, ref_real_field: str) -> Tuple[str, str, str]:
@@ -189,7 +208,11 @@ class ReferenceChecker:
 
             ref_pack = load_ref_set(ref_sheet, ref_field)
             if ref_pack is None:
-                log_warn(f"{_src_disp_default}行{excel_row} 字段 {field_name} 引用 [{ref_sheet}/{ref_field or 'id'}] 未找到目标表 JSON，已跳过检查")
+                if export_data_by_sheet is None:
+                    log_warn(f"{_src_disp_default}行{excel_row} 字段 {field_name} 引用 [{ref_sheet}/{ref_field or 'id'}] 未找到目标表 JSON，已跳过检查")
+                else:
+                    error_count += 1
+                    log_error(f"{_src_disp_default}行{excel_row} 字段 {field_name} 引用 [{ref_sheet}/{ref_field or 'id'}] 未找到本轮目标表")
                 continue
             ref_values, ref_base, ref_real_field = ref_pack
 
@@ -201,22 +224,23 @@ class ReferenceChecker:
                 return False
 
             def check_one(v: Any, expected_base: Optional[str]) -> None:
+                nonlocal error_count
                 # 允许空值策略：命中则跳过存在性检查
                 if _is_empty_ref(v, expected_base or ref_base):
                     return
                 if expected_base and not value_type_ok(expected_base, v):
+                    error_count += 1
                     log_error(f"{_src_disp_default}行{excel_row} 字段 {field_name} 类型不匹配，期望 {expected_base}，实际值 {v}")
                     return
                 if v not in ref_values:
-                    nonlocal any_error
-                    any_error = True
+                    error_count += 1
                     src_disp, target_disp, marker = _ctx_parts(ref_sheet, ref_real_field)
                     # 格式：[(绿色)源文件] 行X 字段Y 引用值V 不存在于目标文件，但被标记为[Sheet/Field]
                     log_error(f"{src_disp}行{excel_row} 字段{field_name} 引用值{v} 不存在于{target_disp}，但被标记为{marker}")
 
             # 声明类型与目标列类型不一致也报错（使用与"引用缺失"一致的格式）
             if base and ref_base and base != ref_base:
-                any_error = True
+                error_count += 1
                 src_disp, target_disp, marker = _ctx_parts(ref_sheet, ref_real_field)
                 if kind == "list":
                     log_error(f"{src_disp}行{excel_row} 字段{field_name} 引用类型不匹配 {target_disp}，但被标记为{marker}（目标类型为{ref_base}，本字段声明为 list({base})）")
@@ -230,14 +254,16 @@ class ReferenceChecker:
                     for ele in value:
                         check_one(ele, base or ref_base)
                 else:
+                    error_count += 1
                     log_error(f"{_src_disp_default}行{excel_row} 字段 {field_name} 声明为 list({base}) 但实际非列表")
 
         # 若执行了检查且无任何错误，打印一行成功日志
-        if self._pending_ref_checks and not any_error:
+        if self._pending_ref_checks and error_count == 0:
             src = self.source_file
             src_disp = f"[{src}] " if src else f"[{self.sheet_name}] "
             log_info(f"{src_disp}没有引用丢失或引用类型不匹配")
 
         # 标记已完成，避免重复打印
         self._reference_checks_done = True
+        return error_count
 

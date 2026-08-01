@@ -26,6 +26,8 @@ _DIFF_ONLY = True                     # 内容不变不重写
 _DRY_RUN = False                      # 试运行不开写
 _created_files: List[str] = []        # 已生成文件记录
 _renderer: Optional[CSharpTemplateRenderer] = None
+_transaction_active = False
+_pending_writes: List[Tuple[str, str]] = []
 # ========================================================================
 
 
@@ -43,6 +45,31 @@ def set_output_options(diff_only: bool = True, dry_run: bool = False) -> None:
     # 每次导出都是独立运行。GUI 允许在同一进程中重复导出，若不清空会把上次
     # 的产物误算入本次报告与清理白名单。
     _created_files.clear()
+    _pending_writes.clear()
+
+
+def begin_output_transaction() -> None:
+    """开始收集输出，生成阶段全部成功后再统一提交。"""
+    global _transaction_active
+    _pending_writes.clear()
+    _transaction_active = True
+
+
+def commit_output_transaction() -> None:
+    """按生成顺序提交暂存输出；调用方应将 manifest 放在最后。"""
+    global _transaction_active
+    pending = list(_pending_writes)
+    _pending_writes.clear()
+    _transaction_active = False
+    for content, file_path in pending:
+        _write_to_file_now(content, file_path)
+
+
+def discard_output_transaction() -> None:
+    """丢弃尚未提交的输出。"""
+    global _transaction_active
+    _pending_writes.clear()
+    _transaction_active = False
 
 def get_created_files():
     """推荐使用的新命名（旧 get_create_files 仍兼容）"""
@@ -299,6 +326,14 @@ def write_to_file(content: str, file_path: str) -> None:
     - 原子写入（临时文件 + move）
     - 记录创建文件列表
     """
+    if _transaction_active:
+        _pending_writes.append((content, file_path))
+        return
+    _write_to_file_now(content, file_path)
+
+
+def _write_to_file_now(content: str, file_path: str) -> None:
+    """执行单文件原子写入。"""
     path = Path(file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 

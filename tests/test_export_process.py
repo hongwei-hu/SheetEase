@@ -11,6 +11,17 @@ from ExcelExportTool.exceptions import ExportError, SheetNameConflictError
 from ExcelExportTool.generation.enum_registry import get_enum_registry, reset_enum_registry
 
 
+def test_resolve_table_profiles_reads_versioned_source_file(tmp_path):
+    (tmp_path / "table_profiles.json").write_text(
+        '{"Monster": {"load": "lazy"}}',
+        encoding="utf-8",
+    )
+
+    assert export_process._resolve_table_profiles(str(tmp_path), None) == {
+        "Monster": {"load": "lazy"}
+    }
+
+
 def test_process_excel_file_sheet_name_conflict_raises():
     wb = openpyxl.Workbook()
     wb.active.title = "SameSheet"

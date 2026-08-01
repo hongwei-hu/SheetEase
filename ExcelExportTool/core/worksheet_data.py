@@ -97,6 +97,7 @@ class WorksheetData:
         self.data_labels = self.cell_values[4]
         self.field_names = self.cell_values[5]
         self.default_values = self.cell_values[6]
+        self._export_metadata: Dict[str, Any] = {}
 
         # 严格表头检查：确保 1..6 行存在且列数匹配
         for i in range(1, 7):
@@ -402,6 +403,11 @@ class WorksheetData:
         """返回导出主键到 Excel 原始行号的映射。"""
         return dict(self._export_row_numbers)
 
+    @property
+    def export_metadata(self) -> Dict[str, Any]:
+        """返回用于独立 manifest 的表级元数据副本。"""
+        return dict(self._export_metadata)
+
     def build_export_data(self) -> Dict[Any, Dict[str, Any]]:
         """解析并校验表格，构建内存数据，但不写入 JSON 文件。
 
@@ -427,15 +433,14 @@ class WorksheetData:
 
         data: Dict[Any, Dict[str, Any]] = {}
         self._export_row_numbers = {}
-        # 构建 _meta：包含字段标签和来源 Excel 文件名
+        # 元数据独立写入 ConfigManifest.json，运行时数据文件只保留主键记录。
         meta: Dict[str, Any] = {}
         if field_tags_meta:
             meta["fields"] = field_tags_meta
         source_file = getattr(self, "source_file", None)
         if source_file:
             meta["source_file"] = source_file
-        if meta:
-            data["_meta"] = meta
+        self._export_metadata = meta
         serial_key = 0
         first_real = self._actual_field_name(1) if len(self.field_names) > 1 else None
         used_keys = {}
@@ -508,11 +513,11 @@ class WorksheetData:
                         raise RuntimeError(f"{data_name} required 但值为空且无默认值 (行{excel_row})")
                     label = str(self.data_labels[col_index]).strip().lower() if self.data_labels[col_index] is not None else ""
                     allow_empty_enum = label == "optional"
-                    value = convert_to_type(type_str, default_value, data_name, self.name, allow_empty=allow_empty_enum)
+                    value = convert_to_type(type_str, default_value, data_name, self.name, excel_row, col_index + 1, allow_empty=allow_empty_enum)
                 else:
                     label = str(self.data_labels[col_index]).strip().lower() if self.data_labels[col_index] is not None else ""
                     allow_empty_enum = label == "optional"
-                    value = convert_to_type(type_str, cell_value, data_name, self.name, allow_empty=allow_empty_enum)
+                    value = convert_to_type(type_str, cell_value, data_name, self.name, excel_row, col_index + 1, allow_empty=allow_empty_enum)
 
                 # 约束检查
                 if col_index in self._field_constraints:
@@ -599,7 +604,7 @@ class WorksheetData:
         self._export_data = data
         self._export_json_content = file_content
         if _PRINT_FIELD_SUMMARY:
-            record_count = len(data) - (1 if "_meta" in data else 0)
+            record_count = len(data)
             log_info(f"[{self.name}] 解析完成: 行数={record_count} required缺失={required_missing_count}")
         return data
 
@@ -618,14 +623,19 @@ class WorksheetData:
         self.build_export_data()
         self.write_json(output_folder)
 
-    def run_reference_checks(self, search_dirs: List[str], sheet_to_file_map: Optional[Dict[str, str]] = None) -> None:
-        """执行引用检查"""
+    def run_reference_checks(
+        self,
+        search_dirs: List[str],
+        sheet_to_file_map: Optional[Dict[str, str]] = None,
+        export_data_by_sheet: Optional[Dict[str, Dict[Any, Any]]] = None,
+    ) -> int:
+        """执行引用检查并返回错误数。"""
         # source_file 在导出流程中是后设值，这里同步到检查器以便日志包含来源 Excel 文件名。
         try:
             self._reference_checker.source_file = getattr(self, "source_file", None)
         except Exception:
             pass
-        self._reference_checker.run_checks(search_dirs, sheet_to_file_map)
+        return self._reference_checker.run_checks(search_dirs, sheet_to_file_map, export_data_by_sheet)
 
     def generate_script(self, output_folder: str) -> None:
         """

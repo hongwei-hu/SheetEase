@@ -72,7 +72,7 @@ def test_duplicate_actual_field_name_with_ref_prefix_raises(monkeypatch):
         WorksheetData(ws)
 
 
-def test_default_value_applied_and_meta_tags(monkeypatch, tmp_path):
+def test_default_value_applied_and_meta_tags_are_separate(monkeypatch, tmp_path):
     import ExcelExportTool.core.worksheet_data as mod
     monkeypatch.setattr(mod, "check_interface_field_types", lambda *a, **k: None)
 
@@ -88,7 +88,8 @@ def test_default_value_applied_and_meta_tags(monkeypatch, tmp_path):
     out_file = tmp_path / "MetaCaseConfig.json"
     content = json.loads(out_file.read_text(encoding="utf-8"))
     assert content["1"]["icon"] == "DefaultIcon"
-    assert content["_meta"]["fields"]["icon"]["tags"] == ["asset:png"]
+    assert "_meta" not in content
+    assert data.export_metadata["fields"]["icon"]["tags"] == ["asset:png"]
 
 
 def test_build_export_data_does_not_write_until_explicit_write(monkeypatch, tmp_path):

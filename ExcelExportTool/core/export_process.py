@@ -1,5 +1,7 @@
 # Author: huhongwei 306463233@qq.com
 # MIT License
+import hashlib
+import json
 import time
 import openpyxl
 from pathlib import Path
@@ -10,7 +12,16 @@ import traceback
 from dataclasses import asdict, dataclass, field
 from .worksheet_data import WorksheetData
 from ..utils.user_utils import user_confirm
-from ..generation.cs_generation import generate_enum_file_from_sheet, generate_enum_file, get_created_files, set_output_options
+from ..generation.cs_generation import (
+    begin_output_transaction,
+    commit_output_transaction,
+    discard_output_transaction,
+    generate_enum_file_from_sheet,
+    generate_enum_file,
+    get_created_files,
+    set_output_options,
+    write_to_file,
+)
 from ..utils.log import log_info, log_warn, log_error, log_success, log_sep, green_filename, log_warn_summary
 from ..exceptions import SheetNameConflictError, ExportError
 from ..exceptions import InvalidFieldNameError
@@ -18,13 +29,16 @@ from ..exceptions import WriteFileError
 from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTypeError
 from ..generation.enum_registry import get_enum_registry, reset_enum_registry
 from ..generation.stable_enum_values import STABLE_ENUM_VALUES_FILENAME, StableEnumValueAllocator
-from ..utils.naming_config import ENUM_KEYS_SUFFIX
+from ..utils.naming_config import ENUM_KEYS_SUFFIX, JSON_FILE_PATTERN
 from ..hooks.runner import run_custom_hooks
 REPORT = None  # 报表文件输出已移除
 CS_ENUM_INT_MIN = -2147483648
 CS_ENUM_INT_MAX = 2147483647
 SHEETEASE_METADATA_DIR = ".sheetease"
 STABLE_ENUM_VALUES_PROJECT_FILENAME = "stable_enum_values.json"
+CONFIG_MANIFEST_FILENAME = "ConfigManifest.json"
+GENERATED_CONFIG_CATALOG_FILENAME = "GeneratedConfigCatalog.cs"
+TABLE_PROFILES_FILENAME = "table_profiles.json"
 
 
 @dataclass(frozen=True)
@@ -41,10 +55,110 @@ class ExportSummary:
     diff_only: bool
     dry_run: bool
     hook_issues: tuple[dict, ...] = field(default_factory=tuple)
+    formula_cells: int = 0
+    formula_cache_missing: int = 0
 
     def to_dict(self) -> dict:
         """转换为可直接写入 JSON 的字典。"""
         return asdict(self)
+
+
+def _validate_formula_cache(excel_path: Path, data_workbook) -> int:
+    """校验主表导出区域的公式缓存，返回公式单元格数量。"""
+    formula_workbook = None
+    try:
+        formula_workbook = openpyxl.load_workbook(str(excel_path), data_only=False)
+        formula_sheet = formula_workbook.worksheets[0]
+        data_sheet = data_workbook.worksheets[0]
+        calculation = getattr(formula_workbook, "calculation", None)
+        calculation_mode = getattr(calculation, "calcMode", None)
+        if calculation_mode == "manual":
+            log_warn(f"[{excel_path.name}] 工作簿计算模式为 manual；保存前请确认 Excel 已完成重新计算")
+
+        formula_count = 0
+        missing_cells: list[str] = []
+        for row in formula_sheet.iter_rows(min_row=7, min_col=2):
+            for formula_cell in row:
+                if formula_cell.data_type != "f":
+                    continue
+                formula_count += 1
+                if data_sheet[formula_cell.coordinate].value is None:
+                    missing_cells.append(formula_cell.coordinate)
+        if missing_cells:
+            sample = ", ".join(missing_cells[:10])
+            suffix = "" if len(missing_cells) <= 10 else f" 等共 {len(missing_cells)} 处"
+            raise ExportError(
+                f"{excel_path.name} 存在未缓存计算结果的公式单元格: {sample}{suffix}。"
+                "请用 Excel 打开并完整重算、保存后再导出。"
+            )
+        if formula_count:
+            log_info(f"[{excel_path.name}] 公式缓存校验通过: {formula_count} 个公式单元格")
+        return formula_count
+    finally:
+        if formula_workbook is not None:
+            formula_workbook.close()
+
+
+def _build_config_manifest(sheets: list[WorksheetData], table_profiles: Optional[dict] = None) -> str:
+    """构建独立配置清单；每表 JSON 本身不再混入工具元数据。"""
+    profiles = table_profiles or {}
+    tables = {}
+    for sheet in sorted(sheets, key=lambda item: item.name):
+        content = sheet._export_json_content or "{}"
+        metadata = sheet.export_metadata
+        tables[sheet.name] = {
+            "file": JSON_FILE_PATTERN.format(name=sheet.name),
+            "source_file": metadata.get("source_file"),
+            "row_count": len(sheet.export_data or {}),
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "fields": metadata.get("fields", {}),
+            "load_mode": str(profiles.get(sheet.name, {}).get("load", "preload")),
+        }
+    return json.dumps({"schema_version": 1, "tables": tables}, ensure_ascii=False, indent=2)
+
+
+def _build_generated_config_catalog(sheets: list[WorksheetData], table_profiles: Optional[dict] = None) -> str:
+    """生成无反射的配置类型目录和构造工厂。"""
+    profiles = table_profiles or {}
+    entries = []
+    mode_names = {"preload": "Preload", "lazy": "Lazy", "editorOnly": "EditorOnly", "editoronly": "EditorOnly"}
+    for sheet in sorted(sheets, key=lambda item: item.name):
+        raw_mode = str(profiles.get(sheet.name, {}).get("load", "preload"))
+        if raw_mode not in mode_names:
+            raise ExportError(f"表 {sheet.name} 的 load 策略无效: {raw_mode}，只允许 preload/lazy/editorOnly")
+        mode = mode_names[raw_mode]
+        entries.append(
+            f'            new ConfigTableDescriptor(typeof({sheet.name}Info), typeof({sheet.name}Config), '
+            f'"{sheet.name}Config", () => new {sheet.name}Config(), ConfigLoadMode.{mode}),'
+        )
+    body = "\n".join(entries)
+    return (
+        "// This is auto-generated, don't modify manually\n"
+        "namespace Data.TableScript\n{\n"
+        "    internal static class GeneratedConfigCatalog\n    {\n"
+        "        internal static ConfigTableDescriptor[] CreateDescriptors()\n        {\n"
+        "            return new[]\n            {\n"
+        f"{body}\n"
+        "            };\n        }\n    }\n}\n"
+    )
+
+
+def _resolve_table_profiles(source_folder: str, configured_profiles: Optional[dict]) -> dict:
+    """读取可随 Excel 目录版本管理的表级策略；显式配置优先。"""
+    if configured_profiles is not None:
+        if not isinstance(configured_profiles, dict):
+            raise ExportError("table_profiles 必须是 JSON 对象")
+        return configured_profiles
+    profile_path = Path(source_folder) / TABLE_PROFILES_FILENAME
+    if not profile_path.is_file():
+        return {}
+    try:
+        profiles = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ExportError(f"无法读取表级加载策略 {profile_path}: {exc}") from exc
+    if not isinstance(profiles, dict):
+        raise ExportError(f"表级加载策略 {profile_path} 的根节点必须是 JSON 对象")
+    return profiles
 
 
 def _parse_manual_enum_value(raw_value, excel_name: str, sheet_name: str, row_index: int, item_name: str) -> Optional[int]:
@@ -264,6 +378,7 @@ def batch_excel_to_json(
     dry_run: bool = False,
     auto_cleanup: bool = True,
     hook_root: Optional[str] = None,
+    table_profiles: Optional[dict] = None,
 ) -> ExportSummary:
     """
     批量处理Excel文件，生成JSON和C#代码。
@@ -282,6 +397,7 @@ def batch_excel_to_json(
         dry_run: 是否为试运行模式（不实际写入文件）
         auto_cleanup: 是否自动清理未使用的文件
         hook_root: 可选的工程自定义检查钩子目录；为空时不运行自定义检查
+        table_profiles: 可选的表级加载策略，默认 preload
     
     Raises:
         ExportError: 导出过程中的各种错误
@@ -290,6 +406,7 @@ def batch_excel_to_json(
     log_sep("开始导表")
     log_info(f"Excel目录: {source_folder}")
     set_output_options(diff_only=diff_only, dry_run=dry_run)
+    table_profiles = _resolve_table_profiles(source_folder, table_profiles)
 
     # 输出目录可写性与磁盘空间检查
     def _check_output_dir(folder: Optional[str]) -> None:
@@ -334,6 +451,7 @@ def batch_excel_to_json(
         if path.name and path.name[0].isupper() and not path.name.startswith("~$")
     ]
     workbook_cache: dict[Path, object] = {}
+    formula_cell_count = 0
 
     if not excel_files:
         log_warn("未找到 .xlsx 文件")
@@ -548,6 +666,7 @@ def batch_excel_to_json(
                 skip += 1
                 continue
             try:
+                formula_cell_count += _validate_formula_cache(excel_path, workbook_cache.get(excel_path))
                 ws = process_excel_file(
                     excel_path,
                     file_sheet_map,
@@ -598,10 +717,28 @@ def batch_excel_to_json(
             },
         )
 
-    # ========== 第四阶段：检查通过后写入产物 ==========
+    # ========== 第四阶段：引用检查 ==========
+    # 必须使用本轮内存模型；dry-run 也不再读取可能过期的旧 JSON。
+    export_data_by_sheet = {
+        ws.name: ws.export_data if ws.export_data is not None else ws.build_export_data()
+        for ws in sheets
+    }
+    reference_error_count = 0
+    if sheets:
+        log_sep("引用检查")
+        search_dirs = [output_client_folder, output_project_folder]
+        for ws in sheets:
+            reference_error_count += ws.run_reference_checks(
+                search_dirs,
+                sheet_to_file_map,
+                export_data_by_sheet,
+            )
+    if reference_error_count:
+        raise ExportError(f"引用检查失败，共发现 {reference_error_count} 个错误；未写入任何导出产物")
+
+    # ========== 第五阶段：检查通过后写入产物 ==========
     log_sep("写入导出产物")
-    if not dry_run:
-        stable_enum_allocator.save()
+    begin_output_transaction()
 
     if enum_output_folder and enum_files_to_export:
         enum_names_seen = {}
@@ -633,17 +770,25 @@ def batch_excel_to_json(
         if csfile_output_folder:
             ws.generate_script(csfile_output_folder)
 
-    # 统一引用检查（导出后）
-    if sheets and not aborted:
-        search_dirs = [output_client_folder, output_project_folder]
-        # 空行分隔阶段，并打印一次阶段标题
-        log_info("")
-        log_info("————开始引用检查————")
-        for ws in sheets:
-            try:
-                ws.run_reference_checks(search_dirs, sheet_to_file_map)
-            except Exception as e:
-                log_error(f"[{ws.name}] 引用检查失败: {e}")
+    if csfile_output_folder:
+        write_to_file(
+            _build_generated_config_catalog(sheets, table_profiles),
+            os.path.join(csfile_output_folder, GENERATED_CONFIG_CATALOG_FILENAME),
+        )
+
+    manifest_content = _build_config_manifest(sheets, table_profiles)
+    if output_client_folder:
+        write_to_file(manifest_content, os.path.join(output_client_folder, CONFIG_MANIFEST_FILENAME))
+    if output_project_folder:
+        write_to_file(manifest_content, os.path.join(output_project_folder, CONFIG_MANIFEST_FILENAME))
+
+    try:
+        commit_output_transaction()
+        if not dry_run:
+            stable_enum_allocator.save()
+    except Exception:
+        discard_output_transaction()
+        raise
 
     # 打印每表错误/警告统计（若实现了内部统计则输出；当前由 worksheet 在控制台输出具体错误）
 
@@ -699,4 +844,6 @@ def batch_excel_to_json(
         diff_only=diff_only,
         dry_run=dry_run,
         hook_issues=tuple(asdict(issue) for issue in hook_issues),
+        formula_cells=formula_cell_count,
+        formula_cache_missing=0,
     )

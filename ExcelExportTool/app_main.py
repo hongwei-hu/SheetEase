@@ -987,6 +987,7 @@ class MainWindow:
                         dry_run=False,
                         auto_cleanup=True,
                         hook_root=cfg.get('custom_hook_root') or None,
+                        table_profiles=cfg.get('table_profiles') or None,
                     )
                     elapsed_sec = max(0.0, time.perf_counter() - started)
                     code = 0
@@ -1035,6 +1036,7 @@ def run_export_with_cfg(cfg: dict) -> int:
         dry_run=False,
         auto_cleanup=True,
         hook_root=cfg.get('custom_hook_root') or None,
+        table_profiles=cfg.get('table_profiles') or None,
     )
     return 0
 

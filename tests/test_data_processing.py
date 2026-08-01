@@ -105,6 +105,10 @@ class TestConvertListTypes:
         result = convert_to_type("list(string)", "a,b,c")
         assert result == ["a", "b", "c"]
 
+    def test_convert_list_supports_quoted_csv_and_json(self):
+        assert convert_to_type("list(string)", '"a,b",c') == ["a,b", "c"]
+        assert convert_to_type("list(int)", "[1, 2, 3]") == [1, 2, 3]
+
     def test_convert_list_i18n_alias(self):
         """测试列表中本地化字符串短类型别名"""
         result = convert_to_type("list(i18n)", "Hello#Menu,Bye#Menu")
@@ -185,6 +189,13 @@ class TestConvertDictTypes:
         """测试空字典"""
         result = convert_to_type("dict(int,string)", None)
         assert result == {}
+
+    def test_convert_dict_supports_json_and_rejects_bad_entries(self):
+        assert convert_to_type("dict(string,int)", '{"a": 1, "b": 2}') == {"a": 1, "b": 2}
+        with pytest.raises(ValueError, match="key:value"):
+            convert_to_type("dict(string,int)", "a:1\nbad", "values", "Demo", 9, 4)
+        with pytest.raises(ValueError, match="重复键"):
+            convert_to_type("dict(int,string)", "1:a\n01:b")
 
     def test_convert_dict_value_nested_short_type(self):
         """测试字典值中的嵌套短类型别名会转换并校验元素。"""

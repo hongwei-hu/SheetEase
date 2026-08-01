@@ -267,6 +267,7 @@ def _run(options: argparse.Namespace) -> tuple[int, Optional[dict], Optional[dic
             dry_run=options.dry_run,
             auto_cleanup=not options.no_cleanup,
             hook_root=cfg.get("custom_hook_root") or None,
+            table_profiles=cfg.get("table_profiles") or None,
         )
         summary_dict = summary.to_dict() if hasattr(summary, "to_dict") else None
         return EXIT_SUCCESS, cfg, summary_dict, None

@@ -3,6 +3,8 @@
 # MIT License
 # All rights reserved
 
+import csv
+import json
 import re
 from typing import Any, Callable, Dict, List, Optional
 from ..exceptions import UnknownCustomTypeError, CustomTypeParseError
@@ -109,6 +111,35 @@ custom_type_registry.register("Localization.LocalizedStringRef", _parse_localize
 def available_csharp_enum_name(name: str) -> bool:
     """检查是否为合法的C#枚举名（兼容性别名）"""
     return is_valid_csharp_identifier(name)
+
+
+def _location_prefix(field=None, sheet=None, row=None, col=None) -> str:
+    prefix = f"[{sheet}] " if sheet else ""
+    if row is not None:
+        prefix += f"行{row} "
+    if col is not None:
+        prefix += f"列{col} "
+    if field:
+        prefix += f"字段{field} "
+    return prefix
+
+
+def _parse_list_items(value: Any, *, field=None, sheet=None, row=None, col=None) -> List[Any]:
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    text = str(value).strip()
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{_location_prefix(field, sheet, row, col)}JSON 列表格式错误: {exc.msg}") from exc
+        if not isinstance(parsed, list):
+            raise ValueError(f"{_location_prefix(field, sheet, row, col)}容器值必须是 JSON 数组")
+        return parsed
+    try:
+        return next(csv.reader([text], skipinitialspace=True))
+    except csv.Error as exc:
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}CSV 列表格式错误: {exc}") from exc
 
 
 def convert_to_type(
@@ -278,22 +309,40 @@ def _convert_dict(type_str: str, value: Any, field: str = None, sheet: str = Non
     """转换为字典类型，例如 dict(int,string)，并递归做C#范围检查"""
     result: Dict[Any, Any] = {}
     type_match = re.search(r"\((.*)\)", type_str)
-    if not type_match or value is None:
+    if value is None or (isinstance(value, str) and value.strip() == ""):
         return result
+    if not type_match:
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}无效的字典类型定义: {type_str}")
     type_args = split_type_arguments(type_match.group(1))
     if len(type_args) != 2:
-        return result
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}字典类型必须包含两个类型参数: {type_str}")
     key_type_str, value_type_str = type_args
-    # 支持嵌套类型
-    for line in str(value).splitlines():
-        if ":" in line:
-            key, val = map(str.strip, line.split(":", 1))
-            # key 只支持基础类型
-            key_conv = PRIMITIVE_TYPE_MAPPING.get(key_type_str, str)
-            k = key_conv(key)
-            # value 支持递归
-            v = _convert_with_check(value_type_str, val, field=field, sheet=sheet, row=row, col=col)
-            result[k] = v
+    if isinstance(value, dict):
+        entries = list(value.items())
+    else:
+        text = str(value).strip()
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{_location_prefix(field, sheet, row, col)}JSON 字典格式错误: {exc.msg}") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError(f"{_location_prefix(field, sheet, row, col)}容器值必须是 JSON 对象")
+            entries = list(parsed.items())
+        else:
+            entries = []
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if not line.strip():
+                    continue
+                if ":" not in line:
+                    raise ValueError(f"{_location_prefix(field, sheet, row, col)}字典第{line_number}项必须使用 key:value 格式")
+                entries.append(tuple(map(str.strip, line.split(":", 1))))
+
+    for key, val in entries:
+        k = _convert_with_check(key_type_str, key, field=field, sheet=sheet, row=row, col=col)
+        if k in result:
+            raise ValueError(f"{_location_prefix(field, sheet, row, col)}字典中存在重复键: {k}")
+        result[k] = _convert_with_check(value_type_str, val, field=field, sheet=sheet, row=row, col=col)
     return result
 
 
@@ -304,10 +353,20 @@ def _convert_pair(type_str: str, value: Any, field: str = None, sheet: str = Non
 
     type_match = re.search(r"\((.*)\)", type_str)
     if not type_match:
-        return None
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}无效的 pair 类型定义: {type_str}")
     type_args = split_type_arguments(type_match.group(1))
     if len(type_args) != 2:
-        return None
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}pair 类型必须包含两个类型参数: {type_str}")
+
+    if isinstance(value, dict):
+        if set(value.keys()) != {"Key", "Value"}:
+            raise ValueError(f"{_location_prefix(field, sheet, row, col)}pair JSON 必须且只能包含 Key、Value")
+        key_raw, value_raw = value["Key"], value["Value"]
+        key_type_str, value_type_str = type_args
+        return {
+            "Key": _convert_with_check(key_type_str, key_raw, field=field, sheet=sheet, row=row, col=col),
+            "Value": _convert_with_check(value_type_str, value_raw, field=field, sheet=sheet, row=row, col=col),
+        }
 
     raw_text = str(value)
     if ":" not in raw_text:
@@ -332,31 +391,21 @@ def _convert_list(type_str: str, value: Any, field: str = None, sheet: str = Non
     """转换为列表类型，例如 list(int)，unilist(int)（需唯一性检查），并递归做C#范围检查"""
     result: List[Any] = []
     type_match = re.search(r"\((.*)\)", type_str)
-    if not type_match or value is None:
+    if value is None or (isinstance(value, str) and value.strip() == ""):
         return result
+    if not type_match:
+        raise ValueError(f"{_location_prefix(field, sheet, row, col)}无效的列表类型定义: {type_str}")
     element_type_str = type_match.group(1).strip()
-    # 支持递归
-    if isinstance(value, str):
-        for v in value.split(","):
-            v = v.strip()
-            if v:
-                result.append(_convert_with_check(element_type_str, v, field=field, sheet=sheet, row=row, col=col))
-    else:
-        # 单元素
-        try:
-            result.append(_convert_with_check(element_type_str, value, field=field, sheet=sheet, row=row, col=col))
-        except Exception as e:
-            raise ValueError(f"无法将 {value} 转换为 {type_str}: {e}")
+    for item in _parse_list_items(value, field=field, sheet=sheet, row=row, col=col):
+        if isinstance(item, str):
+            item = item.strip()
+            if item == "":
+                continue
+        result.append(_convert_with_check(element_type_str, item, field=field, sheet=sheet, row=row, col=col))
     
     # 对 unilist 进行唯一性检查
     if type_str.lower().startswith("unilist"):
-        prefix = f"[{sheet}] " if sheet else ""
-        if row is not None:
-            prefix += f"行{row} "
-        if col is not None:
-            prefix += f"列{col} "
-        if field:
-            prefix += f"字段{field} "
+        prefix = _location_prefix(field, sheet, row, col)
         
         seen = set()
         for item in result:
@@ -474,8 +523,8 @@ def _convert_list_enum(enum_name: str, value: Any, field: str = None, sheet: str
     if value is None or (isinstance(value, str) and value.strip() == ""):
         return result  # 列表允许为空
     
-    if isinstance(value, str):
-        item_names = [v.strip() for v in value.split(",") if v.strip()]
+    if isinstance(value, (str, list, tuple)):
+        item_names = [str(v).strip() for v in _parse_list_items(value, field=field, sheet=sheet, row=row, col=col) if str(v).strip()]
         for item_name in item_names:
             enum_value = _convert_enum(enum_name, item_name, field, sheet, row, col)
             result.append(enum_value)
