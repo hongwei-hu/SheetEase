@@ -68,8 +68,10 @@ if str(APP_DIR / 'ExcelExportTool') not in sys.path:
 
 try:
     from ExcelExportTool.utils.config_io import get_config_file, load_initial_config, save_config  # type: ignore
+    from ExcelExportTool.utils.path_utils import discover_excel_files, is_excel_source_file  # type: ignore
 except Exception:
     from utils.config_io import get_config_file, load_initial_config, save_config  # type: ignore
+    from utils.path_utils import discover_excel_files, is_excel_source_file  # type: ignore
 
 
 def _import_batch_excel_to_json():
@@ -604,8 +606,8 @@ class MainWindow:
             errors.append('Excel 根目录不存在或不可访问')
         else:
             count = self._safe_count(
-                f for f in excel_root.rglob('*.xlsx')
-                if f.name and f.name[0].isupper() and not f.name.startswith('~$')
+                f for f in discover_excel_files(excel_root)
+                if is_excel_source_file(f)
             )
             if count <= 0:
                 warnings.append('Excel 目录中没有符合导出规则的 .xlsx 文件')
@@ -773,8 +775,8 @@ class MainWindow:
                 if p and p.is_dir():
                     # .xlsx 且首字母大写且非临时文件(~$)
                     n = self._safe_count(
-                        f for f in p.rglob(XLSX_GLOB)
-                        if f.name and f.name[0].isupper() and not f.name.startswith('~$')
+                        f for f in discover_excel_files(p)
+                        if is_excel_source_file(f)
                     )
             except Exception:
                 n = 0
@@ -850,8 +852,8 @@ class MainWindow:
             n = 0
             if p.is_dir():
                 n = self._safe_count(
-                    f for f in p.rglob(XLSX_GLOB)
-                    if f.name and f.name[0].isupper() and not f.name.startswith('~$')
+                    f for f in discover_excel_files(p)
+                    if is_excel_source_file(f)
                 )
             if n <= 0:
                 return False, '表格目录没有任何符合导出规范的表格。命名规则：扩展名为 .xlsx，文件名首字母需大写，不以 ~$ 开头'

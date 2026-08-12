@@ -30,6 +30,7 @@ from ..exceptions import DuplicateFieldError, HeaderFormatError, UnknownCustomTy
 from ..generation.enum_registry import get_enum_registry, reset_enum_registry
 from ..generation.stable_enum_values import STABLE_ENUM_VALUES_FILENAME, StableEnumValueAllocator
 from ..utils.naming_config import ENUM_KEYS_SUFFIX, JSON_FILE_PATTERN
+from ..utils.path_utils import discover_excel_files, is_excel_source_file
 from ..hooks.runner import run_custom_hooks
 REPORT = None  # 报表文件输出已移除
 CS_ENUM_INT_MIN = -2147483648
@@ -39,6 +40,14 @@ STABLE_ENUM_VALUES_PROJECT_FILENAME = "stable_enum_values.json"
 CONFIG_MANIFEST_FILENAME = "ConfigManifest.json"
 GENERATED_CONFIG_CATALOG_FILENAME = "GeneratedConfigCatalog.cs"
 TABLE_PROFILES_FILENAME = "table_profiles.json"
+
+
+def _display_excel_path(excel_path: Path, source_folder: str) -> str:
+    """返回带相对目录的 Excel 来源路径，避免同名文件在报错中无法区分。"""
+    try:
+        return excel_path.resolve().relative_to(Path(source_folder).resolve()).as_posix()
+    except (OSError, ValueError):
+        return str(excel_path.resolve())
 
 
 @dataclass(frozen=True)
@@ -445,10 +454,10 @@ def batch_excel_to_json(
     file_sheet_map: dict[str, str] = {}
     # 反查 map: sheet 名 -> excel 文件名（用于日志显示目标 Excel 文件）
     sheet_to_file_map: dict[str, str] = {}
-    excel_files = list(Path(source_folder).rglob("*.xlsx"))
+    excel_files = discover_excel_files(Path(source_folder))
     eligible_files = [
         path for path in excel_files
-        if path.name and path.name[0].isupper() and not path.name.startswith("~$")
+        if is_excel_source_file(path)
     ]
     workbook_cache: dict[Path, object] = {}
     formula_cell_count = 0
@@ -472,6 +481,7 @@ def batch_excel_to_json(
     enum_files_to_export: list[Tuple[Path, str, list, list]] = []  # (excel_path, enum_type_name, enum_data, remarks)
     
     for excel_path in excel_files:
+        excel_source = _display_excel_path(excel_path, source_folder)
         if not excel_path.name[0].isupper():
             continue
         
@@ -534,7 +544,7 @@ def batch_excel_to_json(
                                 invalid_items.append(item_name)
                         if invalid_items:
                             raise ExportError(
-                                f"枚举 {enum_type_name} (来自 {excel_path.name}) 包含不符合C#标识符规范的枚举项: {invalid_items}。"
+                                f"枚举 {enum_type_name} (来自 {excel_source}) 包含不符合C#标识符规范的枚举项: {invalid_items}。"
                                 f"自动生成的 Keys 枚举允许小写/下划线，但仍必须是合法 C# 标识符"
                             )
                         enum_items = stable_enum_allocator.allocate(
@@ -542,10 +552,10 @@ def batch_excel_to_json(
                             enum_names,
                             enum_explicit_values,
                             enum_default_values,
-                            f"{excel_path.name} (主键为string类型)",
+                            f"{excel_source} (主键为string类型)",
                         )
                         # 注册枚举，记录来源信息
-                        source_info = f"{excel_path.name} (主键为string类型)"
+                        source_info = f"{excel_source} (主键为string类型)"
                         enum_registry.register_enum(
                             enum_type_name,
                             enum_items,
@@ -555,7 +565,7 @@ def batch_excel_to_json(
                         )
                         # 自动 Keys 枚举保持原有导出策略：由 worksheet_data.generate_script 负责输出，
                         # 第一阶段仅注册到运行时注册表，不再额外导出到 enum_output_folder，避免重复产物。
-                        log_info(f"收集枚举(仅注册，不导出文件): {enum_type_name} (来自 {excel_path.name})")
+                        log_info(f"收集枚举(仅注册，不导出文件): {enum_type_name} (来自 {excel_source})")
         except ExportError as e:
             # 枚举相关的错误直接抛出，中断导表
             log_error(f"枚举收集失败: {e}")
@@ -588,7 +598,7 @@ def batch_excel_to_json(
                                 continue
                             if name_str in enum_names:
                                 raise ExportError(
-                                    f"duplicate enum item in {excel_path.name}/{sheet.title} row {row_index}: "
+                                    f"duplicate enum item in {excel_source}/{sheet.title} row {row_index}: "
                                     f"{name_str}. C# enum member names must be unique."
                                 )
 
@@ -631,7 +641,7 @@ def batch_excel_to_json(
                                     invalid_items.append(item_name)
                             if invalid_items:
                                 raise ExportError(
-                                    f"枚举 {enum_type_name} (来自 {excel_path.name}/{sheet.title}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
+                                    f"枚举 {enum_type_name} (来自 {excel_source}/{sheet.title}) 包含不符合C#命名规范的枚举项: {invalid_items}。"
                                     f"枚举项必须以大写字母开头（大写驼峰式）"
                                 )
                             enum_items = stable_enum_allocator.allocate(
@@ -639,13 +649,13 @@ def batch_excel_to_json(
                                 enum_names,
                                 enum_explicit_values,
                                 enum_default_values,
-                                f"{excel_path.name}/{sheet.title}",
+                                f"{excel_source}/{sheet.title}",
                             )
                             # 注册枚举，记录来源信息
-                            source_info = f"{excel_path.name}/{sheet.title}"
+                            source_info = f"{excel_source}/{sheet.title}"
                             enum_registry.register_enum(enum_type_name, enum_items, "Data.TableScript", source_info)
                             enum_files_to_export.append((excel_path, enum_type_name, list(enum_items.items()), enum_remarks))
-                            log_info(f"收集枚举: {enum_type_name} (来自 {excel_path.name}/{sheet.title})")
+                            log_info(f"收集枚举: {enum_type_name} (来自 {excel_source}/{sheet.title})")
         except ExportError as e:
             # 枚举相关的错误直接抛出，中断导表
             log_error(f"枚举收集失败: {e}")
@@ -743,15 +753,16 @@ def batch_excel_to_json(
     if enum_output_folder and enum_files_to_export:
         enum_names_seen = {}
         for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:
+            excel_source = _display_excel_path(excel_path, source_folder)
             if enum_type_name in enum_names_seen:
                 existing_source = enum_names_seen[enum_type_name]
                 raise ExportError(
                     f"发现重复的枚举定义: {enum_type_name}\n"
                     f"已有定义（来源: {existing_source}）\n"
-                    f"重复定义（来源: {excel_path.name}）\n"
+                    f"重复定义（来源: {excel_source}）\n"
                     f"任何情况下都不应该导出两个相同的枚举。"
                 )
-            enum_names_seen[enum_type_name] = excel_path.name
+            enum_names_seen[enum_type_name] = excel_source
 
         log_info(f"开始导出 {len(enum_files_to_export)} 个枚举...")
         for excel_path, enum_type_name, enum_data, remarks in enum_files_to_export:

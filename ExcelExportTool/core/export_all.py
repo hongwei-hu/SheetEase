@@ -81,14 +81,9 @@ def _is_writable_dir(path_value: str) -> bool:
 
 def _excel_count(excel_root: str) -> int:
     try:
-        root = Path(excel_root)
-        if not root.is_dir():
-            return 0
-        return sum(
-            1
-            for path in root.rglob("*.xlsx")
-            if path.name and path.name[0].isupper() and not path.name.startswith("~$")
-        )
+        from ExcelExportTool.utils.path_utils import discover_excel_files, is_excel_source_file
+
+        return sum(1 for path in discover_excel_files(Path(excel_root)) if is_excel_source_file(path))
     except Exception:
         return 0
 

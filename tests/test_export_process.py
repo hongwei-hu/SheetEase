@@ -170,6 +170,7 @@ def _build_workbook_for_keys_enum_collection(path: Path, type_col: int, keys: li
 
 
 def _build_workbook_with_enum_sheet(path: Path, enum_rows: list[tuple]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.Workbook()
     wb.active.title = path.stem
     enum_ws = wb.create_sheet("Enum-Quality")
@@ -178,6 +179,55 @@ def _build_workbook_with_enum_sheet(path: Path, enum_rows: list[tuple]) -> None:
         enum_ws.append(list(row))
     wb.save(path)
     wb.close()
+
+
+def test_batch_excel_to_json_ignores_enum_workbooks_in_agent_temp_directory(monkeypatch, tmp_path):
+    official = tmp_path / "Item.xlsx"
+    temporary = tmp_path / ".agent-excel" / "work" / "run-1" / "Item.xlsx"
+    _build_workbook_with_enum_sheet(official, [("Common", 0, None)])
+    _build_workbook_with_enum_sheet(temporary, [("Common", 0, None)])
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr(export_process, "generate_enum_file", lambda *args, **kwargs: None)
+    enum_out = tmp_path / "enum_out"
+    enum_out.mkdir()
+
+    reset_enum_registry()
+    summary = export_process.batch_excel_to_json(
+        source_folder=str(tmp_path),
+        output_client_folder=None,
+        output_project_folder=None,
+        csfile_output_folder=None,
+        enum_output_folder=str(enum_out),
+        auto_cleanup=False,
+    )
+
+    assert summary.excel_files == 1
+    assert get_enum_registry().has_enum("Quality")
+
+
+def test_duplicate_enum_error_includes_relative_workbook_paths(monkeypatch, tmp_path):
+    first = tmp_path / "AreaA" / "Item.xlsx"
+    second = tmp_path / "AreaB" / "Item.xlsx"
+    _build_workbook_with_enum_sheet(first, [("Common", 0, None)])
+    _build_workbook_with_enum_sheet(second, [("Common", 0, None)])
+    monkeypatch.setattr(export_process, "process_excel_file", lambda *args, **kwargs: None)
+    enum_out = tmp_path / "enum_out"
+    enum_out.mkdir()
+
+    reset_enum_registry()
+    with pytest.raises(ExportError) as exc_info:
+        export_process.batch_excel_to_json(
+            source_folder=str(tmp_path),
+            output_client_folder=None,
+            output_project_folder=None,
+            csfile_output_folder=None,
+            enum_output_folder=str(enum_out),
+            auto_cleanup=False,
+        )
+
+    message = str(exc_info.value)
+    assert "AreaA/Item.xlsx/Enum-Quality" in message
+    assert "AreaB/Item.xlsx/Enum-Quality" in message
 
 
 def _write_generated_enum(path: Path, enum_name: str, members: list[tuple[str, int]]) -> None:

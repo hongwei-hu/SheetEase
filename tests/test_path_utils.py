@@ -3,7 +3,13 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
-from ExcelExportTool.utils.path_utils import validate_path, sanitize_filename, ensure_safe_path
+from ExcelExportTool.utils.path_utils import (
+    discover_excel_files,
+    ensure_safe_path,
+    is_excel_source_file,
+    sanitize_filename,
+    validate_path,
+)
 from ExcelExportTool.exceptions import PathTraversalError, InvalidPathError
 
 
@@ -88,4 +94,27 @@ class TestEnsureSafePath:
             safe_path = ensure_safe_path(os.path.join(tmpdir, "..", "test"))
             # 验证路径在基础目录内
             assert tmpdir in str(safe_path) or safe_path.exists()
+
+
+def test_discover_excel_files_excludes_tool_temporary_directories(tmp_path):
+    official = tmp_path / "Data.xlsx"
+    nested = tmp_path / "Tables" / "Nested.xlsx"
+    agent_copy = tmp_path / ".agent-excel" / "work" / "Data.xlsx"
+    metadata_copy = tmp_path / ".sheetease" / "Data.xlsx"
+    for path in (official, nested, agent_copy, metadata_copy):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    discovered = discover_excel_files(tmp_path)
+
+    assert official in discovered
+    assert nested in discovered
+    assert agent_copy not in discovered
+    assert metadata_copy not in discovered
+
+
+def test_is_excel_source_file_preserves_export_naming_rules():
+    assert is_excel_source_file(Path("Data.xlsx"))
+    assert not is_excel_source_file(Path("data.xlsx"))
+    assert not is_excel_source_file(Path("~$Data.xlsx"))
 
